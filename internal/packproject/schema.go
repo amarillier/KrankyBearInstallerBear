@@ -1,0 +1,128 @@
+// Package packproject defines the per-project packaging config (packman.yaml)
+// shared by every backend under internal/packager and by both the GUI and CLI.
+package packproject
+
+// Project describes everything needed to build installers/packages for one
+// application across Windows, macOS, and Linux.
+type Project struct {
+	Identity Identity         `yaml:"identity"`
+	Binaries []BinaryEntry    `yaml:"binaries"`
+	Payload  []PayloadEntry   `yaml:"payload,omitempty"`
+	Install  InstallLocations `yaml:"install,omitempty"`
+	Hooks    Hooks            `yaml:"hooks,omitempty"`
+	Windows  WindowsOptions   `yaml:"windows,omitempty"`
+	MacOS    MacOSOptions     `yaml:"macos,omitempty"`
+	Linux    LinuxOptions     `yaml:"linux,omitempty"`
+	Targets  []string         `yaml:"targets"`
+	Output   OutputOptions    `yaml:"output,omitempty"`
+
+	// BaseDir is the directory the project file lives in. Every backend
+	// resolves relative Source/LicenseFile/icon paths against it. Set by
+	// Load(); leave empty (paths resolve against the process cwd) when
+	// constructing a Project by hand, e.g. in tests.
+	BaseDir string `yaml:"-"`
+}
+
+// Identity holds the app metadata common to every packaging backend.
+type Identity struct {
+	Name        string  `yaml:"name"`
+	ID          string  `yaml:"id"`
+	Version     string  `yaml:"version"`
+	Publisher   string  `yaml:"publisher,omitempty"`
+	Vendor      string  `yaml:"vendor,omitempty"`
+	URL         string  `yaml:"url,omitempty"`
+	Description string  `yaml:"description,omitempty"`
+	LicenseFile string  `yaml:"license_file,omitempty"`
+	Icons       IconSet `yaml:"icons,omitempty"`
+}
+
+// IconSet holds per-format icon paths; each is optional and only required by
+// the backends that need it (winexe/winmsi want ICO, macpkg wants ICNS).
+type IconSet struct {
+	ICO  string `yaml:"ico,omitempty"`
+	ICNS string `yaml:"icns,omitempty"`
+	PNG  string `yaml:"png,omitempty"`
+}
+
+// BinaryEntry is one compiled binary for a given OS/arch pair. OS/Arch use
+// Go's own GOOS/GOARCH spelling ("windows", "darwin", "linux"; "amd64", "arm64").
+type BinaryEntry struct {
+	OS   string `yaml:"os"`
+	Arch string `yaml:"arch"`
+	Path string `yaml:"path"`
+}
+
+// PayloadEntry maps one extra file or directory into the installed layout,
+// relative to the per-OS install root in InstallLocations. This is the direct
+// analogue of today's Inno [Files] entries / fpm src=dest arguments.
+type PayloadEntry struct {
+	Source    string   `yaml:"source"`
+	Dest      string   `yaml:"dest"`
+	Recursive bool     `yaml:"recursive,omitempty"`
+	OS        []string `yaml:"os,omitempty"` // empty = all OSes
+	Mode      string   `yaml:"mode,omitempty"`
+}
+
+// InstallLocations gives the per-OS install root. Any left blank get a
+// sensible default filled in by Defaults().
+type InstallLocations struct {
+	Windows string `yaml:"windows,omitempty"`
+	MacOS   string `yaml:"macos,omitempty"`
+	Linux   string `yaml:"linux,omitempty"`
+}
+
+// Hooks holds optional inline shell snippets run around install/uninstall.
+// Both default to empty (no hook) — most projects need neither.
+type Hooks struct {
+	PreInstall    string `yaml:"pre_install,omitempty"`
+	PostUninstall string `yaml:"post_uninstall,omitempty"`
+}
+
+// WindowsOptions covers Setup.exe (NSIS) and .msi (WiX) specifics.
+type WindowsOptions struct {
+	// UpgradeGUID is the stable identifier carried across every version of
+	// this app — equivalent to today's Inno [Setup] AppId. It becomes WiX's
+	// UpgradeCode; it must NOT be reused as the per-build MSI ProductCode.
+	UpgradeGUID string `yaml:"upgrade_guid"`
+	ExeName     string `yaml:"exe_name"`
+}
+
+// MacOSOptions covers .pkg (pkgbuild) specifics.
+type MacOSOptions struct {
+	BundleExecutable string `yaml:"bundle_executable,omitempty"`
+	MinSystemVersion string `yaml:"min_system_version,omitempty"`
+	Category         string `yaml:"category,omitempty"`
+}
+
+// LinuxOptions covers .deb/.rpm specifics beyond Identity.
+type LinuxOptions struct {
+	DesktopCategories string `yaml:"desktop_categories,omitempty"`
+	DesktopComment    string `yaml:"desktop_comment,omitempty"`
+}
+
+// OutputOptions controls where and how built artifacts are named.
+type OutputOptions struct {
+	Dir              string `yaml:"dir,omitempty"`
+	FilenameTemplate string `yaml:"filename_template,omitempty"`
+}
+
+// Known target names, shared by config Targets, the CLI --target flag, and
+// the packager registry key.
+const (
+	TargetDEB    = "deb"
+	TargetRPM    = "rpm"
+	TargetMacPkg = "macpkg"
+	TargetWinExe = "winexe"
+	TargetWinMSI = "winmsi"
+)
+
+// AllTargets lists every target this tool knows how to build, in a stable order.
+var AllTargets = []string{TargetDEB, TargetRPM, TargetMacPkg, TargetWinExe, TargetWinMSI}
+
+// TargetGroups maps package.sh-style group aliases to concrete targets.
+var TargetGroups = map[string][]string{
+	"linux":   {TargetDEB, TargetRPM},
+	"mac":     {TargetMacPkg},
+	"windows": {TargetWinExe, TargetWinMSI},
+	"all":     AllTargets,
+}

@@ -1,0 +1,43 @@
+Unicode true
+!define APP_NAME "Test App"
+!define APP_VERSION "1.2.3"
+!define APP_PUBLISHER "Someone"
+!define APP_EXE "TestApp.exe"
+
+Name "${APP_NAME}"
+OutFile "C:\out\TestAppSetup_1.2.3.exe"
+InstallDir "$PROGRAMFILES64\Test App"
+InstallDirRegKey HKCU "Software\${APP_NAME}" "Install_Dir"
+RequestExecutionLevel admin
+Icon "C:\src\icon.ico"
+UninstallIcon "C:\src\icon.ico"
+
+Page license
+LicenseData "C:\src\LICENSE"
+Page directory
+Page instfiles
+
+UninstPage uninstConfirm
+UninstPage instfiles
+
+Section "MainSection" SEC01
+  SetOutPath "$INSTDIR"
+  File "C:\src\bin\TestApp.exe"
+  File "/oname=License.txt" "C:\src\LICENSE"
+
+  SetOutPath "$INSTDIR\assets\images"
+  File /r "C:\src\assets\images\*.*"
+
+  SetOutPath "$INSTDIR"
+  File "C:\src\ReleaseNotes.txt"
+
+  WriteRegStr HKCU "Software\${APP_NAME}" "Install_Dir" "$INSTDIR"
+  WriteUninstaller "$INSTDIR\uninstall.exe"
+SectionEnd
+
+Section "Uninstall"
+  ExecWait 'taskkill /IM "${APP_EXE}" /F /T'
+  Delete "$INSTDIR\uninstall.exe"
+  RMDir /r "$INSTDIR"
+  DeleteRegKey HKCU "Software\${APP_NAME}"
+SectionEnd

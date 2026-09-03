@@ -1,0 +1,55 @@
+Release notes
+KrankyBear InstallerBear: cross-platform GUI + CLI for packaging pre-built binaries
+into native Windows, macOS, and Linux installers, from one shared project file.
+
+Future ideas:
+- Build log text is very pale and hard to read on both light and dark background, maybe change to lighter gray or white, or black depending on theme settings?
+- Buttons for ease of use in main app window? New project, open project, save project, save project as 
+- Add CLI help to use when invoked as installerbear -? or -help to list CLI options and syntax
+- Modify any references to PackMan (e.g. packman.yaml etc) to now be installerbear.yaml
+- Add hide along with show to tray menu, have hide and show operate on all child windows also - about, help, updatecheck etc - anything currently open
+- Duplicate as much as practical between tray and main app menus for ease and discoverability
+- Save main app window size so that on relaunch we can open to user's preferred size - recognizing Fyne still may not support saving display and window coordinates
+- Add tray menu icon tooltip as we have don in other apps e.g. ../TaniumMigrator and ../KrankyBearCommander
+- choco and brew, with notes on self hosting use and also notes on submission and approval for real choco and brew based hosting
+- code signing for NSIS/MSI/pkg/deb/rpm outputs
+- file associations and custom installer wizard pages
+- unsaved-changes confirmation on New/Open Project
+- inline-editable payload table
+- maybe some day i18n language support
+
+Version 0.1.0 - September 03, 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✨ NEW Cross-platform installer builder
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+- Project-based workflow: identity, per-OS/arch binaries, payload, and build
+  targets all live in one packman.yaml project file (New/Open/Save/Save As)
+- Identity tab: name, bundle ID, version, publisher, vendor, URL, description,
+  license, icons, Windows/macOS/Linux-specific settings, output directory
+- Generate ID (reverse-DNS bundle ID from GitHub URL or Publisher/Vendor) and
+  Generate GUID (Windows Upgrade GUID) helpers
+- Binaries tab: per-OS/arch binary paths (Windows/macOS/Linux x amd64/arm64),
+  with automatic multi-arch output when more than one arch is filled in
+- Payload tab: add extra files/folders with recursive copy and OS filtering
+- Build tab: per-target checkboxes, live preflight status (tool installed? OS
+  supported?), Re-check Tools, Start/Cancel, streaming build log
+- Packaging backends: Windows Setup.exe (NSIS/makensis), Windows .msi (wixl),
+  macOS .pkg (real .app bundle + pkgbuild), Linux .deb/.rpm (nfpm, buildable
+  from any host OS) - each target builds independently of the others
+- Headless CLI (packman): build, validate, doctor, list-targets subcommands
+  for CI use, sharing the same preflight logic as the GUI
+- System tray + main menu, Light/Dark/System theme, update checker with
+  once-daily automatic check plus manual "Check for Updates", window size
+  persistence, i18n scaffolding
+- Windows VMs/locked-down hosts without hardware OpenGL automatically fall
+  back to a bundled Mesa3D software renderer
+- New Project now starts with a folder picker and best-effort-prefills
+  Publisher, URL, License file, and icons from that directory's git
+  remote/identity, LICENSE file, and assets/images icons
+- Binaries tab "Scan folder..." guesses Windows/macOS/Linux binary paths
+  from filename conventions, without ever overwriting a manually-set path
+- Payload tab "Scan folder..." proposes payload entries from a directory
+  (skipping anything already covered elsewhere), with a review step before
+  anything is actually added
+- Build tab's Start button is now a traffic light: green when ready, orange
+  while building, back to green on success or red on failure

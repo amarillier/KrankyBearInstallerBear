@@ -1,0 +1,47 @@
+<?xml version='1.0'?>
+<Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'>
+  <Product Name='Test App' Manufacturer='Someone' Id='*' UpgradeCode='4578B785-DB27-44FF-B3F9-2713B327BB90' Language='1033' Codepage='1252' Version='1.2.3'>
+    <Package Id='*' Keywords='Installer' Description='Test App Installer' Manufacturer='Someone' InstallerVersion='200' Languages='1033' Compressed='yes' SummaryCodepage='1252'/>
+    <Media Id='1' Cabinet='product.cab' EmbedCab='yes'/>
+    <MajorUpgrade DowngradeErrorMessage='A newer version of [ProductName] is already installed.'/>
+
+    <Directory Id='TARGETDIR' Name='SourceDir'>
+      <Directory Id='ProgramFilesFolder' Name='PFiles'>
+<Directory Id='INSTALLDIR' Name='Test App'>
+  <Component Id='cmp_TestApp_exe' Guid='*'>
+    <File Id='file_TestApp_exe' Name='TestApp.exe' Source='C:\src\bin\TestApp.exe' KeyPath='yes'/>
+  </Component>
+  <Component Id='cmp_License_txt' Guid='*'>
+    <File Id='file_License_txt' Name='License.txt' Source='C:\src\LICENSE' KeyPath='yes'/>
+  </Component>
+<Directory Id='dir_assets' Name='assets'>
+<Directory Id='dir_images' Name='images'>
+  <Component Id='cmp_icon_png' Guid='*'>
+    <File Id='file_icon_png' Name='icon.png' Source='C:\src\assets\images\icon.png' KeyPath='yes'/>
+  </Component>
+</Directory>
+
+</Directory>
+
+</Directory>
+
+      </Directory>
+      <Directory Id='ProgramMenuFolder'>
+        <Directory Id='dir_Test_App_menu' Name='Test App'>
+          <Component Id='cmp_shortcut' Guid='*'>
+            <Shortcut Id='StartMenuShortcut' Name='Test App' Target='[INSTALLDIR]TestApp.exe' WorkingDirectory='INSTALLDIR'/>
+            <RemoveFolder Id='dir_Test_App_menu' On='uninstall'/>
+            <RegistryValue Root='HKCU' Key='Software\Someone\Test App' Name='installed' Type='integer' Value='1' KeyPath='yes'/>
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <Feature Id='MainFeature' Title='Test App' Level='1'>
+      <ComponentRef Id='cmp_TestApp_exe'/>
+      <ComponentRef Id='cmp_License_txt'/>
+      <ComponentRef Id='cmp_icon_png'/>
+      <ComponentRef Id='cmp_shortcut'/>
+    </Feature>
+  </Product>
+</Wix>

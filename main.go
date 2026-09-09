@@ -10,13 +10,14 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/systray"
 
 	"installerbear/internal/startup"
 )
 
 const (
 	// appName    = "KrankyBear InstallerBear"
-	appVersion = "0.1.0" // see FyneApp.toml
+	appVersion = "0.2.0" // see FyneApp.toml
 	appAuthor  = "Allan Marillier"
 	appID      = "com.github.amarillier.KrankyBearInstallerBear"
 )
@@ -47,6 +48,10 @@ func main() {
 	// see CLAUDE.md's Mesa3D section), and a display-less CI runner has no
 	// hardware OpenGL to probe in the first place, so the CLI path must
 	// never reach app.NewWithID or the Mesa fallback probe at all.
+	if len(os.Args) > 1 && isHelpFlag(os.Args[1]) {
+		printCLIUsage()
+		os.Exit(0)
+	}
 	if isCLICommand(os.Args[1:]) {
 		os.Exit(runCLI(os.Args[1:]))
 	}
@@ -151,9 +156,14 @@ func buildMenu(a fyne.App, win fyne.Window) *fyne.MainMenu {
 		fyne.NewMenuItem("Save Project", func() { mainEditor.saveProject() }),
 		fyne.NewMenuItem("Save Project As...", func() { mainEditor.saveProjectAs() }),
 		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Import Existing Config...", func() { mainEditor.importExistingConfig() }),
+		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Quit", func() { fyne.Do(func() { quitApp(a, win) }) }),
 	)
 	viewMenu := fyne.NewMenu("View",
+		fyne.NewMenuItem("Show All Windows", func() { bringAllAppWindowsToFront(a, win) }),
+		fyne.NewMenuItem("Hide All Windows", func() { hideAllAppWindows(a) }),
+		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Light Theme", func() { setLightTheme(a) }),
 		fyne.NewMenuItem("Dark Theme", func() { setDarkTheme(a) }),
 		fyne.NewMenuItem("System Theme", func() { setSystemTheme(a) }),
@@ -166,6 +176,35 @@ func buildMenu(a fyne.App, win fyne.Window) *fyne.MainMenu {
 	return fyne.NewMainMenu(fileMenu, viewMenu, helpMenu)
 }
 
+// bringAllAppWindowsToFront shows every window Fyne's driver currently holds
+// for this app (main window plus any About/Help/Update window that's been
+// created, even if hidden) and focuses the main window last so the whole
+// stack rises together. Mirrors ../TaniumMigrator's menu.go — note the same
+// trade-off it accepts: Fyne doesn't destroy a window object on Hide, only
+// on Close, so this can also re-show a secondary window the user explicitly
+// closed earlier in the session, not just the ones open when Hide-all ran.
+func bringAllAppWindowsToFront(a fyne.App, mainWin fyne.Window) {
+	for _, win := range a.Driver().AllWindows() {
+		if win != nil {
+			win.Show()
+		}
+	}
+	if mainWin != nil {
+		mainWin.RequestFocus()
+	}
+}
+
+// hideAllAppWindows hides every window Fyne's driver currently holds for
+// this app, mirroring bringAllAppWindowsToFront so Hide/Show-all act on the
+// same set.
+func hideAllAppWindows(a fyne.App) {
+	for _, win := range a.Driver().AllWindows() {
+		if win != nil {
+			win.Hide()
+		}
+	}
+}
+
 // setupSystemTray mirrors the main menu. Tray callbacks fire off the main
 // goroutine, so every body is wrapped in fyne.Do (CLAUDE.md "fyne.Do is
 // mandatory").
@@ -175,7 +214,15 @@ func setupSystemTray(a fyne.App, win fyne.Window) {
 		return // not a desktop driver
 	}
 	menu := fyne.NewMenu(appName,
-		fyne.NewMenuItem("Show", func() { fyne.Do(func() { win.Show(); win.RequestFocus() }) }),
+		fyne.NewMenuItem("Show All Windows", func() { fyne.Do(func() { bringAllAppWindowsToFront(a, win) }) }),
+		fyne.NewMenuItem("Hide All Windows", func() { fyne.Do(func() { hideAllAppWindows(a) }) }),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("New Project", func() { fyne.Do(func() { mainEditor.newProject() }) }),
+		fyne.NewMenuItem("Open Project...", func() { fyne.Do(func() { mainEditor.openProject() }) }),
+		fyne.NewMenuItem("Save Project", func() { fyne.Do(func() { mainEditor.saveProject() }) }),
+		fyne.NewMenuItem("Save Project As...", func() { fyne.Do(func() { mainEditor.saveProjectAs() }) }),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Import Existing Config...", func() { fyne.Do(func() { mainEditor.importExistingConfig() }) }),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Light Theme", func() { fyne.Do(func() { setLightTheme(a) }) }),
 		fyne.NewMenuItem("Dark Theme", func() { fyne.Do(func() { setDarkTheme(a) }) }),
@@ -189,6 +236,16 @@ func setupSystemTray(a fyne.App, win fyne.Window) {
 	)
 	desk.SetSystemTrayMenu(menu)
 	desk.SetSystemTrayIcon(resourceKrankyBearInstallerBearPng)
+
+	// Hover tooltip on the tray icon (Windows/macOS; no-op on Linux) --
+	// desktop.App has no tooltip setter, but fyne.io/systray (what Fyne's
+	// own driver already uses internally for the tray icon) does. Deferred
+	// slightly since, unlike SetSystemTrayIcon above, a raw systray.SetTooltip
+	// call has no built-in retry/caching if the tray isn't fully ready yet.
+	// Same pattern as ../TaniumMigrator and ../KrankyBearCommander.
+	time.AfterFunc(300*time.Millisecond, func() {
+		systray.SetTooltip(appName)
+	})
 }
 
 // "Now this is not the end. It is not even the beginning of the end. But it is, perhaps, the end of the beginning." Winston Churchill, November 10, 1942

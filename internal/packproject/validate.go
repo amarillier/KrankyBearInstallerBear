@@ -69,9 +69,14 @@ func needsWindowsGUID(targets []string) bool {
 }
 
 // validatePayload ports the checks package.sh's validate_fpm_files ran by
-// hand: duplicate destinations, dest path-traversal, missing sources, and
-// broken/circular symlinks — all of which fpm/Inno only ever caught by
-// failing mid-build with a confusing error.
+// hand: duplicate destinations, dest path-traversal, missing sources,
+// broken/circular symlinks, and a Recursive flag that doesn't match
+// whether Source is actually a directory — all of which fpm/Inno (or, for
+// the Recursive mismatch, a packager backend like winexe's NSIS "File /r")
+// only ever caught by failing mid-build with a confusing error, or in
+// macpkg/winmsi/debrpm's case by not failing at all and just silently
+// producing a wrong layout (a "LICENSE" file nested inside a spurious
+// "LICENSE" directory, say).
 func validatePayload(entries []PayloadEntry, baseDir string) error {
 	var errs []error
 	seenDest := make(map[string]string, len(entries))
@@ -108,6 +113,18 @@ func validatePayload(entries []PayloadEntry, baseDir string) error {
 			}
 			if _, terr := os.Stat(src); terr != nil {
 				errs = append(errs, fmt.Errorf("payload source %q symlink target does not exist", e.Source))
+				continue
+			}
+		}
+
+		// Stat (not Lstat) so a symlink is judged by what it actually
+		// resolves to, matching what a backend's own copy step will do.
+		if finalInfo, serr := os.Stat(src); serr == nil {
+			switch {
+			case e.Recursive && !finalInfo.IsDir():
+				errs = append(errs, fmt.Errorf("payload source %q is marked recursive but is a file, not a directory", e.Source))
+			case !e.Recursive && finalInfo.IsDir():
+				errs = append(errs, fmt.Errorf("payload source %q is a directory but not marked recursive", e.Source))
 			}
 		}
 	}

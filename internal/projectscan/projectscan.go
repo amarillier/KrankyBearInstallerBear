@@ -1,9 +1,10 @@
 // Package projectscan best-effort-detects InstallerBear Identity defaults
 // from the conventions a project directory typically already follows: a git
-// remote/committer identity, a LICENSE file, and an icon under
-// assets/images/. Every field of Defaults is optional — a directory that
-// follows none of these conventions just gets a zero Defaults, never an
-// error.
+// remote/committer identity (or, failing that, a URL embedded in its own
+// help/about/update source — see sourceurls.go), a LICENSE file, a
+// ReleaseNotes.txt, and an icon under assets/images/. Every field of
+// Defaults is optional — a directory that follows none of these
+// conventions just gets a zero Defaults, never an error.
 package projectscan
 
 import (
@@ -21,6 +22,9 @@ import (
 // scanned directory, matching how packproject.Project.ResolvePath treats
 // Identity.LicenseFile/Icons.*.
 type Defaults struct {
+	Name        string
+	Version     string
+	Description string
 	URL         string
 	Publisher   string
 	LicenseFile string
@@ -33,9 +37,11 @@ type Defaults struct {
 // LICENSE-like file is present — first match wins.
 var licenseNames = []string{"LICENSE", "LICENSE.md", "LICENSE.txt", "COPYING"}
 
-// Scan best-effort-inspects dir for a git remote/identity, a LICENSE file,
-// and icons under assets/images/. Never returns an error — a directory with
-// none of these conventions simply yields a zero Defaults.
+// Scan best-effort-inspects dir for a git remote/identity (falling back to
+// a URL found in source, see findSourceURL, when there's no remote), a
+// LICENSE file, a ReleaseNotes.txt, and icons under assets/images/. Never
+// returns an error — a directory with none of these conventions simply
+// yields a zero Defaults.
 func Scan(dir string) Defaults {
 	var d Defaults
 
@@ -45,8 +51,13 @@ func Scan(dir string) Defaults {
 	}
 	d.Publisher = info.UserName
 
+	if d.URL == "" {
+		d.URL = findSourceURL(dir)
+	}
+
 	d.LicenseFile = findLicenseFile(dir)
 	d.IconICO, d.IconICNS, d.IconPNG = findIcons(dir)
+	d.Name, d.Version, d.Description = parseReleaseNotes(dir)
 
 	return d
 }
@@ -73,34 +84,82 @@ func findLicenseFile(dir string) string {
 	return ""
 }
 
-// findIcons checks dir/assets/images for the first *.ico, *.icns, and *.png
-// file (independently, one per extension), returning each as a path
-// relative to dir, or "" if that extension has no match.
+// findIcons checks dir/assets/images for the first *.ico and *.icns file
+// (independently, one per extension) plus a matching *.png, returning each
+// as a path relative to dir, or "" if that extension has no match.
+//
+// The .png pick prefers whichever PNG shares its basename with the .ico or
+// .icns match (rename-app.sh's own convention: <icon>.ico, <icon>.icns,
+// <icon>-win.png all sharing "<icon>") over the first alphabetical PNG in
+// the folder, which previously could just as easily grab an unrelated image
+// (e.g. a caricature dropped in assets/images alongside the real app icon).
 func findIcons(dir string) (ico, icns, png string) {
 	imagesDir := filepath.Join(dir, "assets", "images")
 	entries, err := os.ReadDir(imagesDir)
 	if err != nil {
 		return "", "", ""
 	}
+
+	var pngNames []string
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
 		}
-		rel := filepath.Join("assets", "images", e.Name())
 		switch strings.ToLower(filepath.Ext(e.Name())) {
 		case ".ico":
 			if ico == "" {
-				ico = rel
+				ico = e.Name()
 			}
 		case ".icns":
 			if icns == "" {
-				icns = rel
+				icns = e.Name()
 			}
 		case ".png":
-			if png == "" {
-				png = rel
+			pngNames = append(pngNames, e.Name())
+		}
+	}
+
+	png = matchingPNG(pngNames, ico, icns)
+
+	if ico != "" {
+		ico = filepath.Join("assets", "images", ico)
+	}
+	if icns != "" {
+		icns = filepath.Join("assets", "images", icns)
+	}
+	if png != "" {
+		png = filepath.Join("assets", "images", png)
+	}
+	return ico, icns, png
+}
+
+// matchingPNG picks, from pngNames, the one whose basename (stripped of
+// its extension) matches ico's or icns' basename — trying ico first, since
+// rename-app.sh always names the Windows icon after the source PNG it was
+// generated from. Falls back to the first (alphabetically, since ReadDir
+// already returns sorted entries) PNG when neither matches, or there is no
+// ico/icns to match against at all.
+func matchingPNG(pngNames []string, ico, icns string) string {
+	for _, stem := range []string{stemOf(ico), stemOf(icns)} {
+		if stem == "" {
+			continue
+		}
+		for _, name := range pngNames {
+			if strings.EqualFold(stemOf(name), stem) {
+				return name
 			}
 		}
 	}
-	return ico, icns, png
+	if len(pngNames) > 0 {
+		return pngNames[0]
+	}
+	return ""
+}
+
+// stemOf returns name without its extension, or "" if name is empty.
+func stemOf(name string) string {
+	if name == "" {
+		return ""
+	}
+	return strings.TrimSuffix(name, filepath.Ext(name))
 }

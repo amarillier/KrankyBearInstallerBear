@@ -26,6 +26,8 @@ func (e *editor) buildIdentityTab() fyne.CanvasObject {
 	e.vendorEntry = bindEntry(widget.NewEntry(), func(v string) { e.proj.Identity.Vendor = v })
 	e.urlEntry = bindEntry(widget.NewEntry(), func(v string) { e.proj.Identity.URL = v })
 	e.descEntry = bindEntry(widget.NewEntry(), func(v string) { e.proj.Identity.Description = v })
+	e.licenseNameEntry = bindEntry(widget.NewEntry(), func(v string) { e.proj.Identity.License = v })
+	e.licenseNameEntry.SetPlaceHolder("e.g. MIT, GPL v3 (used as Linux package metadata)")
 	e.licenseEntry = bindEntry(widget.NewEntry(), func(v string) { e.proj.Identity.LicenseFile = v })
 
 	identityForm := widget.NewForm(
@@ -36,6 +38,7 @@ func (e *editor) buildIdentityTab() fyne.CanvasObject {
 		widget.NewFormItem("Vendor", e.vendorEntry),
 		widget.NewFormItem("URL", e.urlEntry),
 		widget.NewFormItem("Description", e.descEntry),
+		widget.NewFormItem("License", e.licenseNameEntry),
 		widget.NewFormItem("License file", newBrowseFileRow(e.win, e.licenseEntry)),
 	)
 
@@ -164,6 +167,7 @@ func (e *editor) refreshIdentityTab() {
 	e.vendorEntry.SetText(e.proj.Identity.Vendor)
 	e.urlEntry.SetText(e.proj.Identity.URL)
 	e.descEntry.SetText(e.proj.Identity.Description)
+	e.licenseNameEntry.SetText(e.proj.Identity.License)
 	e.licenseEntry.SetText(e.proj.Identity.LicenseFile)
 	e.icoEntry.SetText(e.proj.Identity.Icons.ICO)
 	e.icnsEntry.SetText(e.proj.Identity.Icons.ICNS)

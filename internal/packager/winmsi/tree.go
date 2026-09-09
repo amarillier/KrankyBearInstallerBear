@@ -89,12 +89,21 @@ func buildDirTree(proj *packproject.Project, bin packproject.BinaryEntry) (*dirN
 		}
 
 		walkErr := filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
-				return err
-			}
-			rel, err := filepath.Rel(src, path)
 			if err != nil {
 				return err
+			}
+			rel, relErr := filepath.Rel(src, path)
+			if relErr != nil {
+				return relErr
+			}
+			if rel != "." && entry.ExcludesMatch(rel) {
+				if d.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
+			}
+			if d.IsDir() {
+				return nil
 			}
 			destDir := filepath.ToSlash(filepath.Join(entry.Dest, filepath.Dir(rel)))
 			addFile(getOrCreateDir(destDir), filepath.Base(path), path)

@@ -3,13 +3,14 @@ package main
 import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"installerbear/internal/buildstate"
 	"installerbear/internal/packproject"
 )
 
-// editor is PackMan's whole GUI: one project (identity, binaries, payload,
+// editor is InstallerBear's whole GUI: one project (identity, binaries, payload,
 // targets) edited across tabs, plus the build state shared with the
 // Build tab's Start/Cancel buttons. Every widget that needs repopulating
 // after New/Open is tracked here so refreshAll can push proj's values into
@@ -21,12 +22,23 @@ type editor struct {
 	proj *packproject.Project
 	path string // "" if this project has never been saved
 
+	// lastSavedSnapshot is proj's own YAML encoding as of the last
+	// New/Open/Save — see projectio.go's isDirty/markSaved. Comparing a
+	// fresh encoding against this is simpler and far less error-prone than
+	// threading a "mark dirty" call through every OnChanged callback across
+	// every tab (and SetText during a refresh already fires those same
+	// callbacks harmlessly — see refreshAll's own comment — so a live dirty
+	// flag would need to tell a real edit apart from that, which this
+	// snapshot comparison sidesteps entirely).
+	lastSavedSnapshot []byte
+
 	build buildstate.State
 
 	// Identity tab
 	nameEntry, idEntry, versionEntry        *widget.Entry
 	publisherEntry, vendorEntry             *widget.Entry
-	urlEntry, descEntry, licenseEntry       *widget.Entry
+	urlEntry, descEntry                     *widget.Entry
+	licenseNameEntry, licenseEntry          *widget.Entry
 	icoEntry, icnsEntry, pngEntry           *widget.Entry
 	guidEntry, exeNameEntry                 *widget.Entry
 	macExecEntry, macMinOSEntry             *widget.Entry
@@ -42,13 +54,14 @@ type editor struct {
 	lastSelectedPayloadRow int // -1 when nothing is selected; see payloadtable.go
 
 	// Build tab
-	targetChecks map[string]*widget.Check
-	targetStatus map[string]*widget.Label
-	logEntry     *widget.Entry
-	startBtn     *widget.Button
-	cancelBtn    *widget.Button
-	buildStatus  *widget.Label
-	tabs         *container.AppTabs
+	targetChecks          map[string]*widget.Check
+	targetStatus          map[string]*widget.Label
+	logEntry              *widget.Entry
+	startBtn              *widget.Button
+	cancelBtn             *widget.Button
+	buildStatus           *widget.Label
+	cleanOldVersionsCheck *widget.Check
+	tabs                  *container.AppTabs
 }
 
 // newEditor constructs the editor around a fresh, blank project — see
@@ -77,7 +90,21 @@ func (e *editor) content() fyne.CanvasObject {
 		container.NewTabItem("Build", e.buildBuildTab()),
 	)
 	e.refreshAll()
-	return e.tabs
+	e.markSaved()
+	return container.NewBorder(e.buildToolbar(), nil, nil, nil, e.tabs)
+}
+
+// buildToolbar gives quick-access buttons for the File menu's project
+// actions, so New/Open/Save/Save As don't require opening the menu every
+// time. Plain buttons in an HBox, matching this codebase's existing
+// "toolbar" idiom (see payloadtable.go/buildpanel.go) rather than
+// widget.Toolbar's different icon-only look.
+func (e *editor) buildToolbar() fyne.CanvasObject {
+	newBtn := widget.NewButtonWithIcon("New", theme.DocumentCreateIcon(), func() { e.newProject() })
+	openBtn := widget.NewButtonWithIcon("Open", theme.FolderOpenIcon(), func() { e.openProject() })
+	saveBtn := widget.NewButtonWithIcon("Save", theme.DocumentSaveIcon(), func() { e.saveProject() })
+	saveAsBtn := widget.NewButton("Save As...", func() { e.saveProjectAs() })
+	return container.NewHBox(newBtn, openBtn, saveBtn, saveAsBtn)
 }
 
 // refreshAll pushes e.proj's current values into every widget. Called after

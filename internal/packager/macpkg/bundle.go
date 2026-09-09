@@ -62,11 +62,15 @@ func BuildAppBundle(proj *packproject.Project, arch, destDir string) (string, er
 			continue
 		}
 		src := proj.ResolvePath(entry.Source)
-		dst := filepath.Join(macosDir, entry.Dest)
 		var err error
 		if entry.Recursive {
-			err = copyTree(src, dst)
+			err = copyTree(src, filepath.Join(macosDir, entry.Dest), entry.ExcludesMatch)
 		} else {
+			// Dest is always a destination directory, same as for a
+			// Recursive entry — the installed filename comes from Source's
+			// own basename, matching winmsi/winexe's interpretation (see
+			// packproject.PayloadEntry's own doc comment).
+			dst := filepath.Join(macosDir, entry.Dest, filepath.Base(entry.Source))
 			err = copyFile(src, dst, 0o644)
 		}
 		if err != nil {
@@ -111,7 +115,10 @@ func copyFile(src, dst string, mode os.FileMode) error {
 	return err
 }
 
-func copyTree(srcDir, dstDir string) error {
+// copyTree copies srcDir's contents into dstDir, skipping any file whose
+// path relative to srcDir excludeMatch reports true for — see
+// packproject.PayloadEntry.ExcludesMatch, the caller's usual excludeMatch.
+func copyTree(srcDir, dstDir string, excludeMatch func(relPath string) bool) error {
 	return filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -119,6 +126,12 @@ func copyTree(srcDir, dstDir string) error {
 		rel, err := filepath.Rel(srcDir, path)
 		if err != nil {
 			return err
+		}
+		if rel != "." && excludeMatch(rel) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
 		}
 		dst := filepath.Join(dstDir, rel)
 		if d.IsDir() {

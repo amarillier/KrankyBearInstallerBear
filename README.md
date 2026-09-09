@@ -3,8 +3,8 @@
 A cross-platform desktop application (Go + [Fyne](https://fyne.io/)) for turning a
 set of already-built binaries into native installers/packages for Windows, macOS,
 and Linux — one shared project file, several output formats, no hand-maintained
-NSIS/WiX/Inno/fpm scripts. A headless CLI (internally named `packman`) is built
-into the same binary for CI use.
+NSIS/WiX/Inno/fpm scripts. A headless CLI is built into the same binary for
+CI use (run with `-help` or `-?` for usage).
 
 Design philosophy aligns with Fyne: ease of use, solid functionality, steady bug
 fixing and performance work.
@@ -13,10 +13,12 @@ fixing and performance work.
 
 ### Project-based workflow
 
-- Everything lives in one `packman.yaml` project file: identity, per-OS/arch
-  binaries, extra payload, install locations, hooks, and which targets to build.
-- New / Open / Save / Save As, with the window title reflecting the project name
-  and unsaved-changes state.
+- Everything lives in one `installerbear.yaml` project file: identity,
+  per-OS/arch binaries, extra payload, install locations, hooks, and which
+  targets to build.
+- New / Open / Save / Save As, available from the File menu, a toolbar row
+  above the tabs, and (New/Open/Save/Save As) the system tray menu — with
+  the window title reflecting the project name and unsaved-changes state.
 - Open is lenient (a work-in-progress project can be reopened even if incomplete);
   Save-before-build always validates first.
 
@@ -71,16 +73,17 @@ fixing and performance work.
   the same preflight logic is shared by the GUI and the CLI's `doctor` command,
   so they never disagree about whether a tool is available.
 
-### Headless CLI (`packman`)
+### Headless CLI
 
 Reachable via the same binary, for CI or scripting:
 
 ```
-installerbear build -p packman.yaml -t deb,rpm,macpkg,winexe,winmsi -o installers
-installerbear build -p packman.yaml -t linux --set version=1.2.3 --dry-run
-installerbear validate -p packman.yaml
+installerbear build -p installerbear.yaml -t deb,rpm,macpkg,winexe,winmsi -o installers
+installerbear build -p installerbear.yaml -t linux --set version=1.2.3 --dry-run
+installerbear validate -p installerbear.yaml
 installerbear doctor
 installerbear list-targets
+installerbear -help   # or -?
 ```
 
 - `build` accepts target group aliases (`linux`, `mac`, `windows`, `all`),
@@ -89,11 +92,16 @@ installerbear list-targets
   failed), or 2 (partial).
 - `doctor` and `list-targets` report per-target host support and tool
   availability without touching Fyne/GLFW at all, so they run fine headless.
+- `-help`/`-?`/`-h`/`--help` print full CLI usage and exit, without touching
+  Fyne/GLFW either.
 
 ### General application features
 
-- System tray and main menu mirror each other: File (New/Open/Save/Save As/Quit),
-  View (Light/Dark/System theme), Help (Help/Check for Updates/About).
+- System tray and main menu mirror each other: New/Open/Save/Save As,
+  Show/Hide All Windows, Light/Dark/System theme, Help/Check for
+  Updates/About, Quit. The tray icon also has a hover tooltip.
+- "Show/Hide All Windows" (tray and main View menu) shows or hides the main
+  window plus any open About/Help/Update window together in one click.
 - Light/Dark/System theme, remembered across launches.
 - Update checker: a quiet automatic check once per day on launch, plus an
   unthrottled manual "Check for Updates", with a HardHat badge on About/Update
@@ -108,6 +116,8 @@ installerbear list-targets
 - No file associations or custom installer wizard pages.
 - No unsaved-changes confirmation on New/Open Project yet.
 - Payload entries are edited via a dialog, not inline in the table.
+- "Show/Hide All Windows" doesn't remember exactly which secondary windows
+  were open — it can re-show one you'd already closed earlier in the session.
 
 ## Cross-platform support
 

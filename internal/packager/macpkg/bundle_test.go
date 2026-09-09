@@ -124,6 +124,52 @@ func TestBuildAppBundle_PayloadOSFilter(t *testing.T) {
 	}
 }
 
+// TestBuildAppBundle_PayloadFileIntoSubdirectory is a regression test: Dest
+// on a non-recursive entry used to be treated as the exact destination file
+// path, so a subdirectory Dest (distinct from Source's own layout, exactly
+// what an imported Inno [Files] remap like "mesa-win\opengl32.dll" ->
+// "mesa-fallback" needs) silently wrote a file literally named after the
+// directory instead of preserving the real filename. Dest must always be a
+// directory — see packproject.PayloadEntry's own doc comment.
+func TestBuildAppBundle_PayloadFileIntoSubdirectory(t *testing.T) {
+	dir := t.TempDir()
+	proj := sampleProject(t, dir)
+	proj.Payload = []packproject.PayloadEntry{
+		{Source: "assets/images/icon.png", Dest: "mesa-fallback", Recursive: false},
+	}
+
+	appPath, err := BuildAppBundle(proj, "arm64", filepath.Join(dir, "out"))
+	if err != nil {
+		t.Fatalf("BuildAppBundle: %v", err)
+	}
+	want := filepath.Join(appPath, "Contents", "MacOS", "mesa-fallback", "icon.png")
+	if _, err := os.Stat(want); err != nil {
+		t.Errorf("expected %s to exist: %v", want, err)
+	}
+}
+
+func TestBuildAppBundle_PayloadExcludes(t *testing.T) {
+	dir := t.TempDir()
+	proj := sampleProject(t, dir)
+	if err := os.WriteFile(filepath.Join(dir, "assets", "images", "excluded.tmp"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	proj.Payload = []packproject.PayloadEntry{
+		{Source: "assets/images", Dest: "assets/images", Recursive: true, Excludes: []string{"*.tmp"}},
+	}
+
+	appPath, err := BuildAppBundle(proj, "arm64", filepath.Join(dir, "out"))
+	if err != nil {
+		t.Fatalf("BuildAppBundle: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(appPath, "Contents", "MacOS", "assets", "images", "excluded.tmp")); err == nil {
+		t.Error("excluded.tmp should have been skipped by Excludes")
+	}
+	if _, err := os.Stat(filepath.Join(appPath, "Contents", "MacOS", "assets", "images", "icon.png")); err != nil {
+		t.Errorf("icon.png should still have been copied: %v", err)
+	}
+}
+
 func TestBuildAppBundle_MissingBinaryFailsWithClearError(t *testing.T) {
 	dir := t.TempDir()
 	proj := sampleProject(t, dir)

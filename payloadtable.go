@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -20,19 +21,25 @@ const payloadColCount = 4 // Source | Dest | Recursive | OS filter
 // which would need a lot more Fyne plumbing for not much benefit at this
 // tool's "basics" scope. This is the GUI analogue of today's Inno [Files]
 // section / fpm src=dest arguments.
+//
+// Uses Fyne's native ShowHeaderRow/CreateHeader/UpdateHeader (rather than
+// faking a bold row 0 in the data grid, this table's original approach) so
+// dragging a header column boundary resizes that column for free — that's
+// a built-in Table behavior gated entirely on ShowHeaderRow being set, see
+// widget.Table's own Dragged/DragEnd. Long cell values ellipsize instead of
+// overflowing into the next column via Label.Truncation.
 func (e *editor) buildPayloadTab() fyne.CanvasObject {
+	newCell := func() fyne.CanvasObject {
+		l := widget.NewLabel("")
+		l.Truncation = fyne.TextTruncateEllipsis
+		return l
+	}
 	e.payloadTable = widget.NewTable(
-		func() (int, int) { return len(e.proj.Payload) + 1, payloadColCount }, // +1 header row
-		func() fyne.CanvasObject { return widget.NewLabel("") },
+		func() (int, int) { return len(e.proj.Payload), payloadColCount },
+		newCell,
 		func(id widget.TableCellID, obj fyne.CanvasObject) {
 			label := obj.(*widget.Label)
-			if id.Row == 0 {
-				label.TextStyle = fyne.TextStyle{Bold: true}
-				label.SetText([]string{"Source", "Dest", "Recursive", "OS"}[id.Col])
-				return
-			}
-			label.TextStyle = fyne.TextStyle{}
-			entry := e.proj.Payload[id.Row-1]
+			entry := e.proj.Payload[id.Row]
 			switch id.Col {
 			case 0:
 				label.SetText(entry.Source)
@@ -49,18 +56,21 @@ func (e *editor) buildPayloadTab() fyne.CanvasObject {
 			}
 		},
 	)
+	e.payloadTable.ShowHeaderRow = true
+	e.payloadTable.CreateHeader = func() fyne.CanvasObject {
+		l := widget.NewLabel("")
+		l.TextStyle = fyne.TextStyle{Bold: true}
+		l.Truncation = fyne.TextTruncateEllipsis
+		return l
+	}
+	e.payloadTable.UpdateHeader = func(id widget.TableCellID, obj fyne.CanvasObject) {
+		obj.(*widget.Label).SetText([]string{"Source", "Dest", "Recursive", "OS"}[id.Col])
+	}
 	e.payloadTable.SetColumnWidth(0, 260)
 	e.payloadTable.SetColumnWidth(1, 220)
 	e.payloadTable.SetColumnWidth(2, 80)
 	e.payloadTable.SetColumnWidth(3, 140)
-	e.payloadTable.OnSelected = func(id widget.TableCellID) {
-		if id.Row == 0 { // header row isn't a real entry
-			e.payloadTable.UnselectAll()
-			e.lastSelectedPayloadRow = -1
-			return
-		}
-		e.lastSelectedPayloadRow = id.Row - 1
-	}
+	e.payloadTable.OnSelected = func(id widget.TableCellID) { e.lastSelectedPayloadRow = id.Row }
 	e.payloadTable.OnUnselected = func(widget.TableCellID) { e.lastSelectedPayloadRow = -1 }
 
 	addBtn := widget.NewButton("Add File...", func() { e.showPayloadDialog(-1, false) })
@@ -119,6 +129,31 @@ func (e *editor) showPayloadDialog(row int, isDir bool) {
 
 	destEntry := widget.NewEntry()
 	destEntry.SetText(existing.Dest)
+
+	// Auto-fill Dest from Source's own basename as long as the user hasn't
+	// typed a Dest of their own — this is what "Scan folder..."/imports
+	// already do (see projectscan.ScanPayloadCandidates), but this
+	// Add File/Add Folder dialog previously left Dest blank unless someone
+	// filled it in by hand. A blank Dest is worse than a merely-imperfect
+	// guess: several blank-Dest entries collide as duplicate destinations,
+	// which only surfaces later as a confusing "payload dest "" used by
+	// both X and Y" error at build/validate time instead of here.
+	userEditedDest := existing.Dest != ""
+	lastAutoDest := existing.Dest
+	autoFillDest := func() {
+		if userEditedDest {
+			return
+		}
+		lastAutoDest = defaultPayloadDest(sourceEntry.Text)
+		destEntry.SetText(lastAutoDest)
+	}
+	destEntry.OnChanged = func(v string) {
+		if v != lastAutoDest {
+			userEditedDest = true
+		}
+	}
+	sourceEntry.OnChanged = func(string) { autoFillDest() }
+
 	recursiveCheck := widget.NewCheck("Copy recursively (source is a folder)", nil)
 	recursiveCheck.SetChecked(existing.Recursive || (row < 0 && isDir))
 	osEntry := widget.NewEntry()
@@ -141,9 +176,17 @@ func (e *editor) showPayloadDialog(row int, isDir bool) {
 		if !ok {
 			return
 		}
+		dest := destEntry.Text
+		if dest == "" {
+			// Belt-and-suspenders: autoFillDest keeps this from happening in
+			// the normal course of using the dialog, but a still-blank Dest
+			// must never actually reach e.proj.Payload — see the comment on
+			// userEditedDest above for what this is guarding against.
+			dest = defaultPayloadDest(sourceEntry.Text)
+		}
 		entry := packproject.PayloadEntry{
 			Source:    sourceEntry.Text,
-			Dest:      destEntry.Text,
+			Dest:      dest,
 			Recursive: recursiveCheck.Checked,
 		}
 		if osFilter := strings.TrimSpace(osEntry.Text); osFilter != "" {
@@ -160,6 +203,16 @@ func (e *editor) showPayloadDialog(row int, isDir bool) {
 		}
 		e.payloadTable.Refresh()
 	}, e.win)
+}
+
+// defaultPayloadDest proposes a Dest for a Payload entry from its Source
+// path alone — just the base name, same as projectscan.ScanPayloadCandidates
+// proposes for a top-level file/folder. Pure and independent of any dialog
+// widget so it's directly unit-testable; see showPayloadDialog's own
+// comment on why leaving this to chance was a real bug (blank Dest values
+// collide as duplicate destinations at validate/build time).
+func defaultPayloadDest(source string) string {
+	return filepath.Base(strings.TrimRight(source, "/"))
 }
 
 func (e *editor) refreshPayloadTab() {
@@ -207,6 +260,12 @@ func (e *editor) showPayloadScanReviewDialog(candidates []projectscan.PayloadCan
 		if c.Recursive {
 			kind = "folder"
 		}
+		if len(c.OS) > 0 {
+			kind += ", " + strings.Join(c.OS, "/") + " only"
+		}
+		if len(c.Excludes) > 0 {
+			kind += ", excludes " + strings.Join(c.Excludes, "; ")
+		}
 		include := widget.NewCheck(c.Source+" ("+kind+")", nil)
 		include.SetChecked(true)
 
@@ -251,6 +310,8 @@ func buildPayloadEntries(candidates []projectscan.PayloadCandidate, included []b
 			Source:    c.Source,
 			Dest:      dest,
 			Recursive: c.Recursive,
+			OS:        c.OS,
+			Excludes:  c.Excludes,
 		})
 	}
 	return entries

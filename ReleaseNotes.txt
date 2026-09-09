@@ -2,21 +2,134 @@ Release notes
 KrankyBear InstallerBear: cross-platform GUI + CLI for packaging pre-built binaries
 into native Windows, macOS, and Linux installers, from one shared project file.
 
-Future ideas:
-- Build log text is very pale and hard to read on both light and dark background, maybe change to lighter gray or white, or black depending on theme settings?
-- Buttons for ease of use in main app window? New project, open project, save project, save project as 
-- Add CLI help to use when invoked as installerbear -? or -help to list CLI options and syntax
-- Modify any references to PackMan (e.g. packman.yaml etc) to now be installerbear.yaml
-- Add hide along with show to tray menu, have hide and show operate on all child windows also - about, help, updatecheck etc - anything currently open
-- Duplicate as much as practical between tray and main app menus for ease and discoverability
-- Save main app window size so that on relaunch we can open to user's preferred size - recognizing Fyne still may not support saving display and window coordinates
-- Add tray menu icon tooltip as we have don in other apps e.g. ../TaniumMigrator and ../KrankyBearCommander
-- choco and brew, with notes on self hosting use and also notes on submission and approval for real choco and brew based hosting
-- code signing for NSIS/MSI/pkg/deb/rpm outputs
-- file associations and custom installer wizard pages
-- unsaved-changes confirmation on New/Open Project
+Future ideas, roughly in the order we plan to tackle them (batched into
+small, shippable, testable chunks rather than one big push - reassessed
+2026-09-09):
+
+Next up:
 - inline-editable payload table
-- maybe some day i18n language support
+
+Then (bigger; tackle once the above is proven):
+- Install-experience options, built around a single new Hooks.PostInstall
+  hook point (today there's only PreInstall/PostUninstall, and only
+  macpkg/debrpm even read Hooks - winexe/winmsi don't touch it), since
+  launch-after-install/open-a-file/autostart are all "run something once
+  the files are down" variations of the same mechanism. Checked 2026-09-04
+  against what actually exists today (audited each backend's source, not
+  guessed) - start with the two most commonly expected behaviors:
+  - "Launch application now?" post-install prompt - not implemented on any
+    backend (no finish-page/Exec logic anywhere)
+  - Optional (user-toggleable) desktop icon/shortcut - winmsi creates one
+    unconditional Start Menu shortcut only; winexe creates no shortcuts at
+    all yet; nothing is user-toggleable on any backend
+  - Then: EULA accept-to-continue page (winexe/NSIS already does this for
+    real - a genuine accept/decline gate, not just a display page -
+    whenever Identity.LicenseFile is set; winmsi/macpkg/debrpm don't have
+    this at all yet, macpkg only ships the license text as a payload file
+    today); prompt to open ReleaseNotes/README after install; run at
+    startup/login (autostart - Linux's LinuxOptions.DesktopCategories/
+    DesktopComment fields already exist in the schema but nothing
+    currently generates a .desktop file from them at all); an uninstall
+    confirmation prompt for winexe (NSIS doesn't ask "are you sure?" by
+    default in the current minimal script); file associations and custom
+    installer wizard pages
+  - Once these exist: [Registry]/[Icons]/[Tasks]/[Run]/[UninstallRun]/
+    [UninstallDelete] importing for "Import Existing Config" - the
+    importer already counts and reports these lines as skipped rather than
+    silently dropping them, ready to wire up once there's something to
+    import them into
+
+Lower priority for now (confirmed with Allan 2026-09-09 - no certs yet for
+code signing, and choco/brew were just alternative-packaging thoughts he'd
+consider later, not a pressing need):
+- code signing for NSIS/MSI/pkg/deb/rpm outputs
+- choco and brew, with notes on self hosting use and also notes on
+  submission and approval for real choco and brew based hosting
+
+Smaller, uncategorized:
+- Improve "Show/Hide All Windows" to remember exactly which secondary windows
+  were open, instead of the current blanket a.Driver().AllWindows() approach
+  (which can re-show a window closed earlier in the session)
+
+Maybe later considerations, defer for now, lower value
+  - maybe some day i18n language support
+
+Version 0.2.0 - September 09, 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- New Project smart defaults: pick a folder and best-effort-fill Publisher,
+  URL, License file, and icons from its git remote/identity, LICENSE file,
+  and assets/images icons
+- Binaries and Payload tabs both gained a "Scan folder..." action to
+  auto-detect binaries by filename convention and propose payload entries
+  from a directory (with a review step before anything is added)
+- Build tab's Start button is now a traffic light: green (ready), orange
+  (building), green/red (last build's result)
+- Toolbar buttons for New/Open/Save/Save As, above the tabs
+- Tray menu now duplicates New/Open/Save/Save As from the File menu, has a
+  hover tooltip, and gained "Show/Hide All Windows" (also added to the main
+  View menu) to show or hide the whole window stack together
+- Build log text is now fully legible in both Light and Dark theme
+- CLI: `-help`/`-?`/`-h`/`--help` print full usage and exit
+- Renamed the default project filename and CLI-facing text from
+  packman.yaml/"packman" to installerbear.yaml/"installerbear" (Open still
+  works with any filename via the file picker; nothing else changed)
+- New "Import Existing Config..." File menu action: best-effort-imports an
+  existing Inno .iss and/or KrankyBear-template build-config.sh/package.sh
+  into the current project (Identity, Windows Upgrade GUID/exe name,
+  bundle ID from an existing Info.plist/Info-plist.txt, Linux desktop
+  metadata, and Payload entries with real dest remapping and Excludes
+  carried over) - a review step shows current -> proposed for every field,
+  and nothing is applied until confirmed. Preserves the original Inno AppId
+  as the Windows Upgrade GUID exactly, which matters for real: reusing a
+  fresh GUID instead would break in-place upgrades for anyone who already
+  has the app from the old Inno-built installer. Payload content is only
+  restricted to Windows when it's genuinely Windows-only (the Mesa3D
+  fallback); everything else (ReleaseNotes.txt, assets, ...) imports
+  unrestricted, matching how package.sh already bundles it into every
+  platform
+- New Project smart defaults extended: also best-effort-fills Name/Version/
+  Description from ReleaseNotes.txt, falls back to a URL found in
+  help.go/about.go/update.go source when there's no git remote, matches the
+  Linux icon to the same basename as the Windows/macOS icon instead of
+  picking the first PNG alphabetically, and auto-scans a conventional bin/
+  folder to fill Binaries and derive the Windows exe name/macOS bundle
+  executable
+- PayloadEntry gained an Excludes field (glob patterns skipped on a
+  recursive copy, honored by every packaging backend) to preserve Inno's
+  own [Files] Excludes behavior
+- Fixed an inconsistency across backends in what a non-recursive
+  PayloadEntry's Dest meant (now consistently "a destination directory"
+  everywhere); Validate now also catches a Recursive flag that doesn't
+  match whether Source is actually a file or a directory, before it can
+  reach a backend and fail with a confusing error (or, worse, silently
+  build a wrong layout)
+- Payload tab: columns are now resizable (drag a header boundary) and
+  ellipsize long paths instead of overflowing into the next column; Add
+  File/Add Folder no longer leaves Dest blank when Source is filled in
+  (several blank-Dest entries used to silently collide as duplicate
+  destinations, only surfacing as a confusing error at build time)
+- Binaries tab "Scan folder..." review now distinguishes "already set,
+  kept" and "multiple matches, skipped" from a genuine "no match" (all
+  three used to be reported identically as "no match")
+- Build tab: optional "Remove older-version installers from the output
+  folder after a successful build" (off by default; always shows the exact
+  file list and asks before deleting anything), plus Copy Log and Save
+  Log... buttons
+- New Project and Open Project now ask before discarding unsaved changes
+  (compares the project's current YAML encoding against its last
+  save/load, so this can't be fooled by a field's SetText firing its own
+  OnChanged during a routine refresh)
+- New Identity "License" field (a short identifier like "GPL v3"/"MIT",
+  distinct from the existing License file path) - wired into Linux
+  .deb/.rpm package metadata, and "Import Existing Config" now imports
+  KB_LICENSE_DEFAULT into it instead of just reporting it as skipped
+- New `installerbear import -source <dir> -p installerbear.yaml` CLI
+  command: the scriptable equivalent of "Import Existing Config...", for
+  migrating a whole set of sibling projects by script instead of clicking
+  through the GUI once per project. Only fills already-set fields with
+  -overwrite (default: blanks only, since there's no human to click a
+  checkbox), skips a Payload entry whose Source is already present (safe to
+  re-run against an already-migrated project), and supports -dry-run
 
 Version 0.1.0 - September 03, 2026
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

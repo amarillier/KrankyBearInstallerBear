@@ -1,4 +1,4 @@
-// Package packproject defines the per-project packaging config (packman.yaml)
+// Package packproject defines the per-project packaging config (installerbear.yaml)
 // shared by every backend under internal/packager and by both the GUI and CLI.
 package packproject
 
@@ -25,13 +25,18 @@ type Project struct {
 
 // Identity holds the app metadata common to every packaging backend.
 type Identity struct {
-	Name        string  `yaml:"name"`
-	ID          string  `yaml:"id"`
-	Version     string  `yaml:"version"`
-	Publisher   string  `yaml:"publisher,omitempty"`
-	Vendor      string  `yaml:"vendor,omitempty"`
-	URL         string  `yaml:"url,omitempty"`
-	Description string  `yaml:"description,omitempty"`
+	Name        string `yaml:"name"`
+	ID          string `yaml:"id"`
+	Version     string `yaml:"version"`
+	Publisher   string `yaml:"publisher,omitempty"`
+	Vendor      string `yaml:"vendor,omitempty"`
+	URL         string `yaml:"url,omitempty"`
+	Description string `yaml:"description,omitempty"`
+	// License is a short license identifier (e.g. "MIT", "GPL v3") for
+	// backends that record one as package metadata (currently debrpm's
+	// nfpm.Info.License) — distinct from LicenseFile, which is the actual
+	// license text shipped with the install.
+	License     string  `yaml:"license,omitempty"`
 	LicenseFile string  `yaml:"license_file,omitempty"`
 	Icons       IconSet `yaml:"icons,omitempty"`
 }
@@ -56,11 +61,21 @@ type BinaryEntry struct {
 // relative to the per-OS install root in InstallLocations. This is the direct
 // analogue of today's Inno [Files] entries / fpm src=dest arguments.
 type PayloadEntry struct {
-	Source    string   `yaml:"source"`
+	Source string `yaml:"source"`
+	// Dest is always a destination *directory*, relative to the install
+	// root ("" for the root itself) — for both a Recursive entry (Source's
+	// own contents land under it) and a single-file entry (the installed
+	// filename is always Source's own basename, never taken from Dest).
+	// Every backend under internal/packager must honor this the same way.
 	Dest      string   `yaml:"dest"`
 	Recursive bool     `yaml:"recursive,omitempty"`
 	OS        []string `yaml:"os,omitempty"` // empty = all OSes
 	Mode      string   `yaml:"mode,omitempty"`
+	// Excludes lists filepath.Match glob patterns (matched against each
+	// file's path relative to Source) skipped when copying a Recursive
+	// entry — the analogue of Inno's [Files] "Excludes:" attribute. Ignored
+	// when Recursive is false.
+	Excludes []string `yaml:"excludes,omitempty"`
 }
 
 // InstallLocations gives the per-OS install root. Any left blank get a
@@ -104,6 +119,14 @@ type LinuxOptions struct {
 type OutputOptions struct {
 	Dir              string `yaml:"dir,omitempty"`
 	FilenameTemplate string `yaml:"filename_template,omitempty"`
+	// CleanOldVersions opts into removing, after a successful build, any
+	// sibling file in Dir that looks like an older-version build of the
+	// same installer (same filename except for the version) — e.g. a
+	// leftover 0.2.0 installer once the project has moved on to 0.3.0. Off
+	// by default: never deletes anything unless explicitly turned on, and
+	// even then only after the user confirms exactly what will be removed
+	// (see buildpanel.go's offerCleanupOldInstallers).
+	CleanOldVersions bool `yaml:"clean_old_versions,omitempty"`
 }
 
 // Known target names, shared by config Targets, the CLI --target flag, and

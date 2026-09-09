@@ -108,6 +108,41 @@ func TestValidate_PayloadCircularSymlink(t *testing.T) {
 	}
 }
 
+// TestValidate_PayloadRecursiveFileFailsWithClearError is a regression test
+// for a real config a hand-edited installerbear.yaml produced: a plain
+// file (LICENSE) marked recursive: true. Every backend either failed
+// outright (winexe's NSIS "File /r LICENSE\*.*" -> "no files found") or
+// silently produced a wrong nested layout (winmsi et al.) instead of
+// erroring — Validate should catch this up front with a clear message
+// instead of letting it reach a backend at all.
+func TestValidate_PayloadRecursiveFileFailsWithClearError(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "LICENSE"), []byte("MIT"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := validProject()
+	p.Payload = []PayloadEntry{{Source: "LICENSE", Dest: "LICENSE", Recursive: true}}
+
+	err := p.Validate(dir)
+	if err == nil || !strings.Contains(err.Error(), "marked recursive but is a file") {
+		t.Fatalf("expected a recursive-but-file error, got %v", err)
+	}
+}
+
+func TestValidate_PayloadDirectoryNotMarkedRecursiveFailsWithClearError(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "images"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := validProject()
+	p.Payload = []PayloadEntry{{Source: "images", Dest: "images", Recursive: false}}
+
+	err := p.Validate(dir)
+	if err == nil || !strings.Contains(err.Error(), "is a directory but not marked recursive") {
+		t.Fatalf("expected a directory-not-recursive error, got %v", err)
+	}
+}
+
 func TestValidate_PayloadValidSourcePasses(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hi"), 0o644); err != nil {

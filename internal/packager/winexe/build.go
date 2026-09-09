@@ -8,6 +8,7 @@ package winexe
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -95,6 +96,20 @@ func (p winexePackager) Build(ctx context.Context, proj *packproject.Project, op
 		if destDir == "." {
 			destDir = ""
 		}
+
+		if entry.Recursive && len(entry.Excludes) > 0 {
+			// NSIS's own "File /r" has no exclude syntax at all, so an entry
+			// with Excludes is pre-walked and filtered here instead, adding
+			// one non-recursive File entry per surviving file rather than a
+			// single "File /r" for the whole directory.
+			filtered, err := excludeFilteredFiles(proj.ResolvePath(entry.Source), destDir, entry)
+			if err != nil {
+				return "", fmt.Errorf("winexe: payload %q: %w", entry.Source, err)
+			}
+			data.Files = append(data.Files, filtered...)
+			continue
+		}
+
 		data.Files = append(data.Files, nsiFileEntry{
 			DestDir:   destDir,
 			Source:    proj.ResolvePath(entry.Source),
@@ -126,6 +141,52 @@ func (p winexePackager) Build(ctx context.Context, proj *packproject.Project, op
 	}
 
 	return outPath, nil
+}
+
+// excludeFilteredFiles walks srcDir and returns one non-recursive
+// nsiFileEntry per file whose path relative to srcDir doesn't match
+// entry.ExcludesMatch, with DestDir set to baseDestDir plus that file's own
+// (backslash-separated) subdirectory — see the Build loop's own comment on
+// why: NSIS's "File /r" has no exclude syntax to filter with directly.
+func excludeFilteredFiles(srcDir, baseDestDir string, entry packproject.PayloadEntry) ([]nsiFileEntry, error) {
+	var out []nsiFileEntry
+	err := filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, relErr := filepath.Rel(srcDir, path)
+		if relErr != nil {
+			return relErr
+		}
+		if rel == "." {
+			return nil
+		}
+		if entry.ExcludesMatch(rel) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+
+		destDir := baseDestDir
+		if sub := filepath.Dir(rel); sub != "." {
+			sub = strings.ReplaceAll(filepath.ToSlash(sub), "/", `\`)
+			if destDir != "" {
+				destDir += `\` + sub
+			} else {
+				destDir = sub
+			}
+		}
+		out = append(out, nsiFileEntry{DestDir: destDir, Source: path})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (winexePackager) emit(progress packager.ProgressFunc, line string) {

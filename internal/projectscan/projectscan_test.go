@@ -54,6 +54,37 @@ func TestScanFullConvention(t *testing.T) {
 	}
 }
 
+func TestFindIconsPrefersPNGMatchingIcoBasename(t *testing.T) {
+	dir := t.TempDir()
+	// Alphabetically before "icon.png", so a naive "first PNG" pick would
+	// grab this one instead of the actually-matching icon.
+	writeFile(t, filepath.Join(dir, "assets", "images", "AllanMCaricature.png"), "x")
+	writeFile(t, filepath.Join(dir, "assets", "images", "icon.ico"), "x")
+	writeFile(t, filepath.Join(dir, "assets", "images", "icon.icns"), "x")
+	writeFile(t, filepath.Join(dir, "assets", "images", "icon.png"), "x")
+
+	ico, icns, png := findIcons(dir)
+	wantICO := filepath.Join("assets", "images", "icon.ico")
+	wantICNS := filepath.Join("assets", "images", "icon.icns")
+	wantPNG := filepath.Join("assets", "images", "icon.png")
+	if ico != wantICO || icns != wantICNS || png != wantPNG {
+		t.Errorf("findIcons() = (%q, %q, %q), want (%q, %q, %q)", ico, icns, png, wantICO, wantICNS, wantPNG)
+	}
+}
+
+func TestFindIconsFallsBackToFirstPNGWhenNoneMatch(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "assets", "images", "icon.ico"), "x")
+	writeFile(t, filepath.Join(dir, "assets", "images", "other-a.png"), "x")
+	writeFile(t, filepath.Join(dir, "assets", "images", "other-b.png"), "x")
+
+	_, _, png := findIcons(dir)
+	want := filepath.Join("assets", "images", "other-a.png")
+	if png != want {
+		t.Errorf("findIcons() png = %q, want %q (first alphabetically)", png, want)
+	}
+}
+
 func TestFindLicenseFilePriorityOrder(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "LICENSE.txt"), "x")

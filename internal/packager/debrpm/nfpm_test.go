@@ -134,6 +134,26 @@ func TestBuild_RelativeBinaryPathResolvesAgainstBaseDir(t *testing.T) {
 	}
 }
 
+// TestBuildInfo_License confirms Identity.License (a short identifier like
+// "GPL v3", distinct from Identity.LicenseFile) reaches nfpm's own License
+// field, which is package metadata nfpm already supports but this backend
+// wasn't setting at all before.
+func TestBuildInfo_License(t *testing.T) {
+	dir := t.TempDir()
+	proj := sampleProject(t, dir)
+	proj.Identity.License = "GPL v3"
+
+	info, cleanup, err := buildInfo(proj, "amd64", proj.Binaries[0])
+	if err != nil {
+		t.Fatalf("buildInfo: %v", err)
+	}
+	defer cleanup()
+
+	if info.License != "GPL v3" {
+		t.Errorf("License = %q, want GPL v3", info.License)
+	}
+}
+
 func TestBuild_MissingBinaryForArchFailsWithClearError(t *testing.T) {
 	dir := t.TempDir()
 	proj := sampleProject(t, dir)

@@ -16,6 +16,13 @@ type PayloadCandidate struct {
 	Source    string // relative to proj.BaseDir when known, else absolute
 	Dest      string // best-effort guess only (the entry's own basename); always editable
 	Recursive bool   // true for directories, false for files
+	// OS and Excludes carry straight through to the resulting
+	// packproject.PayloadEntry when a candidate is accepted (see
+	// buildPayloadEntries) — left empty by ScanPayloadCandidates itself
+	// (a directory scan has no OS/exclude information to propose), but
+	// set by internal/innoimport's .iss importer, which does.
+	OS       []string
+	Excludes []string
 }
 
 // ScanPayloadCandidates lists the immediate (non-recursive) children of dir

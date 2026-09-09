@@ -38,9 +38,9 @@ func showHelp(a fyne.App) {
 OVERVIEW:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 InstallerBear turns a set of already-built binaries into native installers for
-Windows, macOS, and Linux from one shared project file (packman.yaml). A
-headless CLI ("packman") built into the same binary can drive the same builds
-from a script or CI pipeline.
+Windows, macOS, and Linux from one shared project file (installerbear.yaml).
+A headless CLI built into the same binary can drive the same builds from a
+script or CI pipeline - run with -help or -? for CLI usage.
 
 FEATURES:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -58,8 +58,9 @@ FEATURES:
 • Packaging backends - Windows Setup.exe (NSIS), Windows .msi (wixl), macOS
   .pkg (real .app bundle + pkgbuild), Linux .deb/.rpm (nfpm). Each target
   builds independently, so one failure doesn't stop the others.
-• Headless CLI - "packman build/validate/doctor/list-targets" for CI use,
-  sharing the exact same preflight checks as the GUI.
+• Headless CLI - "installerbear build/validate/doctor/list-targets" for CI
+  use, sharing the exact same preflight checks as the GUI. Run with -help or
+  -? for full usage.
 
 SMART FEATURES:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -76,6 +77,10 @@ SMART FEATURES:
 ✨ Update checker: quiet automatic check once per day, plus an always-available
   manual "Check for Updates".
 ✨ Window size is remembered across launches.
+✨ Toolbar buttons for New/Open/Save/Save As sit above the tabs, alongside
+  the File menu.
+✨ Tray "Show/Hide All Windows" brings back or hides the whole window stack
+  (main window plus any open About/Help/Update window) in one click.
 
 KEYBOARD SHORTCUTS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

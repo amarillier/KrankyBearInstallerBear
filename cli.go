@@ -1,20 +1,23 @@
 package main
 
-// cli.go implements PackMan's headless mode (`packman build`/`validate`/
-// `doctor`/`list-targets`). It must never import fyne.io/fyne, directly or
-// transitively — main.go dispatches here BEFORE touching Fyne/GLFW at all,
-// specifically so this works on a display-less CI runner.
+// cli.go implements InstallerBear's headless mode (`installerbear build`/
+// `validate`/`doctor`/`list-targets`). It must never import fyne.io/fyne,
+// directly or transitively — main.go dispatches here BEFORE touching
+// Fyne/GLFW at all, specifically so this works on a display-less CI runner.
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
 
+	"installerbear/internal/innoimport"
 	"installerbear/internal/packager"
 
 	_ "installerbear/internal/packager/debrpm" // registers the deb/rpm backends
@@ -31,6 +34,7 @@ var cliCommands = map[string]func([]string) int{
 	"validate":     cmdValidate,
 	"doctor":       cmdDoctor,
 	"list-targets": cmdListTargets,
+	"import":       cmdImport,
 }
 
 // runCLI dispatches a recognized subcommand. Callers must only invoke this
@@ -39,7 +43,7 @@ func runCLI(args []string) int {
 	cmd, rest := args[0], args[1:]
 	fn, ok := cliCommands[cmd]
 	if !ok {
-		fmt.Fprintf(os.Stderr, "packman: unknown command %q\n\n", cmd)
+		fmt.Fprintf(os.Stderr, "installerbear: unknown command %q\n\n", cmd)
 		printCLIUsage()
 		return 2
 	}
@@ -56,12 +60,27 @@ func isCLICommand(args []string) bool {
 	return ok
 }
 
+// isHelpFlag reports whether arg is a top-level "print usage" request
+// (checked in main.go before isCLICommand, since none of these match a
+// subcommand name).
+func isHelpFlag(arg string) bool {
+	switch arg {
+	case "-?", "-h", "-help", "--help":
+		return true
+	default:
+		return false
+	}
+}
+
 func printCLIUsage() {
 	fmt.Fprint(os.Stderr, `Usage:
-  packman build    -p packman.yaml [-t deb,rpm,macpkg,winexe,winmsi|linux|mac|windows|all] [-o outdir] [--set KEY=VALUE ...] [--dry-run] [--verbose]
-  packman validate -p packman.yaml
-  packman doctor    [-t ...]
-  packman list-targets
+  installerbear build    -p installerbear.yaml [-t deb,rpm,macpkg,winexe,winmsi|linux|mac|windows|all] [-o outdir] [--set KEY=VALUE ...] [--dry-run] [--verbose]
+  installerbear validate -p installerbear.yaml
+  installerbear doctor    [-t ...]
+  installerbear list-targets
+  installerbear import   -source <dir> -p installerbear.yaml [--overwrite] [--dry-run]
+
+Run installerbear with no arguments to launch the GUI.
 `)
 }
 
@@ -88,13 +107,13 @@ func cmdBuild(args []string) int {
 	}
 
 	if *projectPath == "" {
-		fmt.Fprintln(os.Stderr, "packman build: -p/--project is required")
+		fmt.Fprintln(os.Stderr, "installerbear build: -p/--project is required")
 		return 2
 	}
 
 	proj, err := packproject.Load(*projectPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "packman build: %v\n", err)
+		fmt.Fprintf(os.Stderr, "installerbear build: %v\n", err)
 		return 1
 	}
 	applyOverrides(proj, sets)
@@ -104,13 +123,13 @@ func cmdBuild(args []string) int {
 
 	targets, err := expandTargets(*targetArg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "packman build: %v\n", err)
+		fmt.Fprintf(os.Stderr, "installerbear build: %v\n", err)
 		return 2
 	}
 
 	pkgrs, err := packager.Resolve(targets)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "packman build: %v\n", err)
+		fmt.Fprintf(os.Stderr, "installerbear build: %v\n", err)
 		return 1
 	}
 
@@ -141,7 +160,7 @@ func cmdValidate(args []string) int {
 		return 2
 	}
 	if *projectPath == "" {
-		fmt.Fprintln(os.Stderr, "packman validate: -p/--project is required")
+		fmt.Fprintln(os.Stderr, "installerbear validate: -p/--project is required")
 		return 2
 	}
 
@@ -163,7 +182,7 @@ func cmdDoctor(args []string) int {
 
 	targets, err := expandTargets(*targetArg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "packman doctor: %v\n", err)
+		fmt.Fprintf(os.Stderr, "installerbear doctor: %v\n", err)
 		return 2
 	}
 
@@ -207,6 +226,128 @@ func cmdListTargets(args []string) int {
 			status = "implemented"
 		}
 		fmt.Printf("%-8s %s\n", name, status)
+	}
+	return 0
+}
+
+// cmdImport is the scriptable equivalent of the GUI's "Import Existing
+// Config..." (importconfig.go/importmerge.go) — the point of having one at
+// all: migrating a whole set of sibling projects onto InstallerBear by
+// script instead of clicking through the GUI once per project. Shares the
+// exact same parsing (internal/innoimport) and merge logic
+// (importmerge.go's buildImportFields/newPayloadCandidates) as the GUI
+// dialog; the difference is entirely about there being no human to click
+// checkboxes here; see -overwrite below for how that's handled instead.
+//
+// -project is loaded if it exists (leniently, like the GUI's Open) or
+// started fresh, rooted at -project's own directory, if it doesn't — so
+// this can both create a brand-new project from an existing hand-packaged
+// one, and re-run against one already migrated (safe to re-run: Payload
+// entries already present by Source are never duplicated, see
+// newPayloadCandidates).
+func cmdImport(args []string) int {
+	fs := flag.NewFlagSet("import", flag.ContinueOnError)
+	sourceDir := fs.String("source", "", "directory with the existing .iss/build-config.sh/package.sh/Info.plist to import from")
+	projectPath := fs.String("project", "", "path to the InstallerBear project YAML to create or update")
+	fs.StringVar(projectPath, "p", "", "path to the InstallerBear project YAML to create or update (shorthand)")
+	overwrite := fs.Bool("overwrite", false, "also replace a field that's already set (default: only fill blanks)")
+	dryRun := fs.Bool("dry-run", false, "print what would change, without writing the project file")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	if *sourceDir == "" {
+		fmt.Fprintln(os.Stderr, "installerbear import: -source is required")
+		return 2
+	}
+	if *projectPath == "" {
+		fmt.Fprintln(os.Stderr, "installerbear import: -p/--project is required")
+		return 2
+	}
+
+	// Every path internal/innoimport hands back is computed by joining
+	// this directory with a relative Inno path and then re-relativizing
+	// against the project's BaseDir (always absolute — see
+	// packproject.Load's own parseAndDefault) — if sourceDir were left
+	// relative (a bare "-source ." is the natural thing to type), that
+	// join would silently produce a relative "abs" path, and comparing a
+	// relative path against an absolute BaseDir makes filepath.Rel fail
+	// for every single file.
+	srcDir, err := filepath.Abs(*sourceDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "installerbear import: %v\n", err)
+		return 1
+	}
+
+	proj, err := packproject.LoadLenient(*projectPath)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintf(os.Stderr, "installerbear import: %v\n", err)
+			return 1
+		}
+		absPath, aerr := filepath.Abs(*projectPath)
+		if aerr != nil {
+			fmt.Fprintf(os.Stderr, "installerbear import: %v\n", aerr)
+			return 1
+		}
+		proj = &packproject.Project{BaseDir: filepath.Dir(absPath)}
+	}
+
+	pkgRes, err := innoimport.ParseTemplatePackageConfig(srcDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "installerbear import: %v\n", err)
+		return 1
+	}
+	issRes, err := parseProjectISS(srcDir, proj.BaseDir, pkgRes)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "installerbear import: %v\n", err)
+		return 1
+	}
+
+	fields := buildImportFields(proj, pkgRes, issRes)
+	applied := 0
+	for _, f := range fields {
+		if f.current != "" && !*overwrite {
+			fmt.Printf("  skip      %-24s already %q (use -overwrite to replace)\n", f.label, f.current)
+			continue
+		}
+		action := "fill"
+		if f.current != "" {
+			action = "overwrite"
+		}
+		fmt.Printf("  %-9s %-24s -> %q\n", action, f.label, f.proposed)
+		if !*dryRun {
+			f.apply(proj)
+		}
+		applied++
+	}
+
+	newPayload := newPayloadCandidates(proj.Payload, issRes.Payload)
+	for _, c := range newPayload {
+		fmt.Printf("  add payload  %s -> %s\n", c.Source, c.Dest)
+		if !*dryRun {
+			proj.Payload = append(proj.Payload, packproject.PayloadEntry{
+				Source: c.Source, Dest: c.Dest, Recursive: c.Recursive, OS: c.OS, Excludes: c.Excludes,
+			})
+		}
+	}
+
+	for _, s := range append(append([]string{}, pkgRes.Skipped...), issRes.Skipped...) {
+		fmt.Printf("  note         %s\n", s)
+	}
+
+	verb := "imported"
+	if *dryRun {
+		verb = "would import"
+	}
+	fmt.Printf("%s %d field(s) and %d payload entry(ies) into %s\n", verb, applied, len(newPayload), *projectPath)
+	if *dryRun {
+		return 0
+	}
+
+	if err := packproject.Save(proj, *projectPath); err != nil {
+		fmt.Fprintf(os.Stderr, "installerbear import: %v\n", err)
+		return 1
 	}
 	return 0
 }

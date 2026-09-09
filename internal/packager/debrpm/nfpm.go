@@ -7,6 +7,7 @@ package debrpm
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -128,14 +129,38 @@ func buildInfo(proj *packproject.Project, arch string, bin packproject.BinaryEnt
 		if len(entry.OS) > 0 && !slices.Contains(entry.OS, "linux") {
 			continue
 		}
-		typ := files.TypeFile
-		if entry.Recursive {
-			typ = files.TypeTree
+
+		if entry.Recursive && len(entry.Excludes) > 0 {
+			// nfpm's own files.Content has no exclude concept — TypeTree
+			// just hands nfpm a directory to walk itself — so an entry with
+			// Excludes must be pre-walked and filtered here instead, adding
+			// one TypeFile entry per surviving file rather than a single
+			// TypeTree entry for the whole directory.
+			filtered, err := excludeFilteredTree(proj.ResolvePath(entry.Source), filepath.Join(installDir, entry.Dest), entry)
+			if err != nil {
+				return nil, nil, fmt.Errorf("payload %q: %w", entry.Source, err)
+			}
+			contents = append(contents, filtered...)
+			continue
 		}
+
+		if entry.Recursive {
+			contents = append(contents, &files.Content{
+				Source:      proj.ResolvePath(entry.Source),
+				Destination: filepath.Join(installDir, entry.Dest),
+				Type:        files.TypeTree,
+			})
+			continue
+		}
+
+		// Dest is always a destination directory, same as for a Recursive
+		// entry — the installed filename comes from Source's own basename,
+		// matching winmsi/winexe's interpretation (see
+		// packproject.PayloadEntry's own doc comment).
 		contents = append(contents, &files.Content{
 			Source:      proj.ResolvePath(entry.Source),
-			Destination: filepath.Join(installDir, entry.Dest),
-			Type:        typ,
+			Destination: filepath.Join(installDir, entry.Dest, filepath.Base(entry.Source)),
+			Type:        files.TypeFile,
 		})
 	}
 
@@ -172,6 +197,7 @@ func buildInfo(proj *packproject.Project, arch string, bin packproject.BinaryEnt
 		Description: proj.Identity.Description,
 		Vendor:      proj.Identity.Vendor,
 		Homepage:    proj.Identity.URL,
+		License:     proj.Identity.License,
 		Overridables: nfpm.Overridables{
 			Contents: contents,
 			Scripts: nfpm.Scripts{
@@ -182,6 +208,42 @@ func buildInfo(proj *packproject.Project, arch string, bin packproject.BinaryEnt
 	})
 
 	return info, cleanup, nil
+}
+
+// excludeFilteredTree walks srcDir and returns one files.Content{Type:
+// TypeFile} per file whose path relative to srcDir doesn't match
+// entry.ExcludesMatch — see buildInfo's own comment on why this exists:
+// nfpm's TypeTree has no exclude concept of its own.
+func excludeFilteredTree(srcDir, destDir string, entry packproject.PayloadEntry) (files.Contents, error) {
+	var out files.Contents
+	err := filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, relErr := filepath.Rel(srcDir, path)
+		if relErr != nil {
+			return relErr
+		}
+		if rel != "." && entry.ExcludesMatch(rel) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		out = append(out, &files.Content{
+			Source:      path,
+			Destination: filepath.Join(destDir, rel),
+			Type:        files.TypeFile,
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // writeHookScript writes non-empty inline hook text to a temp shell script

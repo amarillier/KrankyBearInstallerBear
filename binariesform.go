@@ -57,8 +57,12 @@ func (e *editor) buildBinariesTab() fyne.CanvasObject {
 // scanBinariesFolder lets the user point at a directory (e.g. a "bin" build
 // output folder) and best-effort-fills any still-empty (OS, arch) slots by
 // filename convention via binscan.ScanDir. Never overwrites a slot that
-// already has a manually-set path. Shows a summary of what was matched so a
-// silent 6-field auto-fill doesn't surprise the user.
+// already has a manually-set path (including one New Project's own
+// applyScannedBinaries silently filled from this exact folder — see
+// projectio.go). Shows a summary of what was matched, and separately of
+// what was left alone and why, so a silent 6-field auto-fill doesn't
+// surprise the user, and so a slot that already had a value doesn't get
+// misreported as "no match" just because nothing changed.
 func (e *editor) scanBinariesFolder() {
 	dialog.NewFolderOpen(func(u fyne.ListableURI, err error) {
 		if err != nil || u == nil {
@@ -70,37 +74,58 @@ func (e *editor) scanBinariesFolder() {
 			return
 		}
 
-		filled := make(map[string]string)
+		matches := make(map[string]string) // slot label -> first matched path
+		ambiguous := make(map[string]bool) // slot label -> more than one file matched
 		for _, g := range guesses {
-			if bin, ok := e.proj.BinaryFor(g.OS, g.Arch); ok && bin.Path != "" {
+			key := binaryFieldLabel(g.OS, g.Arch)
+			if _, seen := matches[key]; seen {
+				ambiguous[key] = true
 				continue
 			}
-			key := binaryFieldLabel(g.OS, g.Arch)
-			if _, already := filled[key]; already {
-				continue // ambiguous: more than one file matched this slot, skip it
-			}
-			filled[key] = g.Path
+			matches[key] = g.Path
 		}
+
+		alreadySet := make(map[string]bool)
 		for _, f := range e.binaryFields {
-			if path, ok := filled[binaryFieldLabel(f.os, f.arch)]; ok {
+			if bin, ok := e.proj.BinaryFor(f.os, f.arch); ok && bin.Path != "" {
+				alreadySet[binaryFieldLabel(f.os, f.arch)] = true
+			}
+		}
+
+		filled := make(map[string]string)
+		for _, f := range e.binaryFields {
+			key := binaryFieldLabel(f.os, f.arch)
+			if alreadySet[key] || ambiguous[key] {
+				continue
+			}
+			if path, ok := matches[key]; ok {
+				filled[key] = path
 				e.setBinary(f.os, f.arch, path)
 			}
 		}
 		e.refreshBinariesTab()
 
-		dialog.ShowInformation("Scan folder", scanSummary(e.binaryFields, filled), e.win)
+		dialog.ShowInformation("Scan folder", scanSummary(e.binaryFields, filled, alreadySet, ambiguous), e.win)
 	}, e.win).Show()
 }
 
-// scanSummary reports which of the 6 slots the scan filled and which it
-// left alone, in a stable (matching the form's) order.
-func scanSummary(fields []binaryField, filled map[string]string) string {
+// scanSummary reports, per (OS, arch) slot and in the form's own order,
+// exactly one of: newly filled (with the matched path), already set before
+// this scan (so the match was found but the existing value was kept),
+// ambiguous (more than one file matched, so nothing was changed), or no
+// match at all.
+func scanSummary(fields []binaryField, filled map[string]string, alreadySet, ambiguous map[string]bool) string {
 	var lines []string
 	for _, f := range fields {
 		label := binaryFieldLabel(f.os, f.arch)
-		if path, ok := filled[label]; ok {
-			lines = append(lines, fmt.Sprintf("%s: %s", label, path))
-		} else {
+		switch {
+		case filled[label] != "":
+			lines = append(lines, fmt.Sprintf("%s: %s", label, filled[label]))
+		case alreadySet[label]:
+			lines = append(lines, fmt.Sprintf("%s: already set, kept", label))
+		case ambiguous[label]:
+			lines = append(lines, fmt.Sprintf("%s: multiple matches, skipped", label))
+		default:
 			lines = append(lines, fmt.Sprintf("%s: no match", label))
 		}
 	}

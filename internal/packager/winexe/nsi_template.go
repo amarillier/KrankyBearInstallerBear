@@ -11,10 +11,29 @@ import (
 // associations, no custom wizard pages, no signing — matches this tool's
 // deliberately-trimmed scope, same as the deb/rpm/macpkg backends.
 //
+// Uses Modern UI 2 (MUI2.nsh, bundled with every NSIS install — no extra
+// tool/resource needed) rather than NSIS's old "classic" bare Page
+// directives: classic UI's wizard window is a small fixed size that reads
+// as noticeably smaller/cheaper than Inno Setup's default, especially for
+// the license page's text box. MUI2's wizard window is bigger and matches
+// what most users expect from a modern installer. Note this is a one-time
+// pick between NSIS's two built-in UI styles, not a size *this tool* can
+// dial up or down — NSIS's own dialog dimensions are fixed at compile time
+// in a binary resource template (Contrib\UIs\modern.exe), so there's no
+// per-build "small/medium/large" knob to expose; genuinely custom
+// dimensions would mean shipping/maintaining a hand-resized resource-hacked
+// UI binary, out of proportion to what this gains.
+//
 // Unicode is left at NSIS's modern default (true) here; see build.go's
 // comment on why a local dev-only workaround exists for verifying this
 // template compiles at all on this machine's specific makensis build.
 var nsiTemplate = template.Must(template.New("app.nsi").Parse(`Unicode true
+{{- if .IconFile}}
+!define MUI_ICON "{{.IconFile}}"
+!define MUI_UNICON "{{.IconFile}}"
+{{- end}}
+!include "MUI2.nsh"
+
 !define APP_NAME "{{.AppName}}"
 !define APP_VERSION "{{.AppVersion}}"
 !define APP_PUBLISHER "{{.Publisher}}"
@@ -31,14 +50,15 @@ UninstallIcon "{{.IconFile}}"
 {{- end}}
 
 {{if .LicenseSource -}}
-Page license
-LicenseData "{{.LicenseSource}}"
+!insertmacro MUI_PAGE_LICENSE "{{.LicenseSource}}"
 {{end -}}
-Page directory
-Page instfiles
+!insertmacro MUI_PAGE_DIRECTORY
+!insertmacro MUI_PAGE_INSTFILES
 
-UninstPage uninstConfirm
-UninstPage instfiles
+!insertmacro MUI_UNPAGE_CONFIRM
+!insertmacro MUI_UNPAGE_INSTFILES
+
+!insertmacro MUI_LANGUAGE "English"
 
 Section "MainSection" SEC01
   SetOutPath "$INSTDIR"

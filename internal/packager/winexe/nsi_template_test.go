@@ -66,7 +66,7 @@ func TestNSITemplate_NoLicenseNoIconNoPayload(t *testing.T) {
 	}
 	out := buf.String()
 
-	for _, unwanted := range []string{"Page license", "LicenseData", "Icon ", "UninstallIcon", "/oname=License.txt"} {
+	for _, unwanted := range []string{"MUI_PAGE_LICENSE", "MUI_ICON", "MUI_UNICON", "Icon ", "UninstallIcon", "/oname=License.txt"} {
 		if bytes.Contains([]byte(out), []byte(unwanted)) {
 			t.Errorf("expected no %q in output when license/icon/payload are all empty:\n%s", unwanted, out)
 		}

@@ -88,11 +88,46 @@ func BuildAppBundle(proj *packproject.Project, arch, destDir string) (string, er
 		}
 	}
 
-	if err := writeInfoPlist(proj, filepath.Join(appPath, "Contents", "Info.plist")); err != nil {
-		return "", fmt.Errorf("macpkg: writing Info.plist: %w", err)
+	// Only copy a real Info.plist into the bundle when the project's own
+	// directory already has one - i.e. the user deliberately renamed their
+	// Info-plist.txt placeholder to activate it. Never synthesize one by
+	// default: this project's own historical package.sh/fpm convention
+	// ships every app with no real Info.plist at all (just the placeholder
+	// text, verbatim) specifically to avoid it, and some IT security
+	// scanning apparently flags a real one - and pkgbuild's --root mode
+	// (see build.go) doesn't require one the way --component mode does, so
+	// there's no technical reason to force it either.
+	if realPlist := filepath.Join(proj.BaseDir, "Info.plist"); fileExists(realPlist) {
+		if err := copyFile(realPlist, filepath.Join(appPath, "Contents", "Info.plist"), 0o644); err != nil {
+			return "", fmt.Errorf("macpkg: copying Info.plist: %w", err)
+		}
+	}
+
+	// Info-plist.txt/Readme-plist.txt are placeholder/documentation files
+	// (not consulted for any build logic - the real Info.plist above is
+	// the only one that matters functionally) that this project's own
+	// historical package.sh copies straight into Contents/ verbatim, as a
+	// sibling of MacOS/, for anyone poking around the installed bundle.
+	// Auto-copy them here too, if present, so every project migrated onto
+	// macpkg keeps that same layout with no per-project Payload config
+	// needed - Payload entries can't reach Contents/ directly anyway (they
+	// always land under Contents/MacOS/, see the loop above).
+	for _, name := range []string{"Info-plist.txt", "Readme-plist.txt"} {
+		src := filepath.Join(proj.BaseDir, name)
+		if !fileExists(src) {
+			continue
+		}
+		if err := copyFile(src, filepath.Join(appPath, "Contents", name), 0o644); err != nil {
+			return "", fmt.Errorf("macpkg: copying %s: %w", name, err)
+		}
 	}
 
 	return appPath, nil
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 func copyFile(src, dst string, mode os.FileMode) error {

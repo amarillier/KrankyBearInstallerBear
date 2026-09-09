@@ -62,12 +62,18 @@ func TestBuildAppBundle_Layout(t *testing.T) {
 		"Contents/MacOS/TestApp",
 		"Contents/MacOS/License.txt",
 		"Contents/MacOS/assets/images/icon.png",
-		"Contents/Info.plist",
 	}
 	for _, rel := range mustExist {
 		if _, err := os.Stat(filepath.Join(appPath, rel)); err != nil {
 			t.Errorf("expected %s to exist: %v", rel, err)
 		}
+	}
+	// No Info.plist in the project dir (sampleProject doesn't create one) -
+	// see TestBuildAppBundle_NoInfoPlistByDefault and
+	// TestBuildAppBundle_CopiesRealInfoPlist for the actual behavior this
+	// asserts.
+	if _, err := os.Stat(filepath.Join(appPath, "Contents", "Info.plist")); err == nil {
+		t.Error("expected no Contents/Info.plist when the project dir has none")
 	}
 
 	// "TestApp" and its slug "testapp" are case-insensitively identical, so
@@ -181,31 +187,88 @@ func TestBuildAppBundle_MissingBinaryFailsWithClearError(t *testing.T) {
 	}
 }
 
-func TestBuildAppBundle_InfoPlistContent(t *testing.T) {
+// TestBuildAppBundle_NoInfoPlistByDefault is a regression test for a real
+// bug: this backend used to always synthesize a real Info.plist from
+// Identity fields, but this project's own historical package.sh/fpm
+// convention deliberately ships every app with no real Info.plist at all
+// (verified against a real installed sibling app, /Applications/
+// TaniumMigrator.app/Contents/ - only Info-plist.txt, no Info.plist) -
+// some IT security scanning apparently flags a real one. pkgbuild's --root
+// mode (see build.go) doesn't require one the way --component mode does
+// (confirmed empirically: --component hard-refuses a bundle with no
+// Info.plist as "not a valid bundle component"), so there's no technical
+// reason to force it either.
+func TestBuildAppBundle_NoInfoPlistByDefault(t *testing.T) {
 	dir := t.TempDir()
 	proj := sampleProject(t, dir)
-	proj.MacOS.MinSystemVersion = "10.13"
-	proj.MacOS.Category = "public.app-category.utilities"
+
+	appPath, err := BuildAppBundle(proj, "arm64", filepath.Join(dir, "out"))
+	if err != nil {
+		t.Fatalf("BuildAppBundle: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(appPath, "Contents", "Info.plist")); err == nil {
+		t.Error("expected no Contents/Info.plist to be created by default")
+	}
+}
+
+// TestBuildAppBundle_CopiesRealInfoPlist covers the opt-in: a user who
+// wants a real Info.plist gets one by deliberately placing a file literally
+// named Info.plist in the project directory (e.g. renaming their own
+// Info-plist.txt placeholder) - copied verbatim, not regenerated from
+// Identity fields, so their own custom content is respected exactly.
+func TestBuildAppBundle_CopiesRealInfoPlist(t *testing.T) {
+	dir := t.TempDir()
+	proj := sampleProject(t, dir)
+	const plistContent = "<?xml version=\"1.0\"?>\n<!-- a hand-authored plist -->\n"
+	if err := os.WriteFile(filepath.Join(dir, "Info.plist"), []byte(plistContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	appPath, err := BuildAppBundle(proj, "arm64", filepath.Join(dir, "out"))
+	if err != nil {
+		t.Fatalf("BuildAppBundle: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(appPath, "Contents", "Info.plist"))
+	if err != nil {
+		t.Fatalf("expected Contents/Info.plist to exist: %v", err)
+	}
+	if string(data) != plistContent {
+		t.Errorf("expected the real Info.plist to be copied verbatim, got:\n%s", data)
+	}
+}
+
+// TestBuildAppBundle_CopiesPlaceholderDocs covers Info-plist.txt/
+// Readme-plist.txt: this project's own historical package.sh copies these
+// straight into Contents/ (a sibling of MacOS/) as harmless documentation,
+// and a Payload entry can't reach that location (Payload always lands
+// under Contents/MacOS/), so macpkg auto-copies them itself when present -
+// with no effect on Info.plist handling, which stays independent.
+func TestBuildAppBundle_CopiesPlaceholderDocs(t *testing.T) {
+	dir := t.TempDir()
+	proj := sampleProject(t, dir)
+	const infoTxt = "placeholder - rename to Info.plist to activate\n"
+	const readmeTxt = "placeholder - rename to Readme.plist to activate\n"
+	if err := os.WriteFile(filepath.Join(dir, "Info-plist.txt"), []byte(infoTxt), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Readme-plist.txt"), []byte(readmeTxt), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	appPath, err := BuildAppBundle(proj, "arm64", filepath.Join(dir, "out"))
 	if err != nil {
 		t.Fatalf("BuildAppBundle: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(appPath, "Contents", "Info.plist"))
-	if err != nil {
-		t.Fatal(err)
+	got, err := os.ReadFile(filepath.Join(appPath, "Contents", "Info-plist.txt"))
+	if err != nil || string(got) != infoTxt {
+		t.Errorf("expected Contents/Info-plist.txt to be copied verbatim, got %q, err %v", got, err)
 	}
-	content := string(data)
-	for _, want := range []string{
-		"<key>CFBundleExecutable</key>\n\t<string>TestApp</string>",
-		"<key>CFBundleIdentifier</key>\n\t<string>com.example.testapp</string>",
-		"<key>CFBundleShortVersionString</key>\n\t<string>1.2.3</string>",
-		"<key>LSMinimumSystemVersion</key>\n\t<string>10.13</string>",
-		"<key>LSApplicationCategoryType</key>\n\t<string>public.app-category.utilities</string>",
-	} {
-		if !strings.Contains(content, want) {
-			t.Errorf("Info.plist missing expected content: %q\nfull plist:\n%s", want, content)
-		}
+	got, err = os.ReadFile(filepath.Join(appPath, "Contents", "Readme-plist.txt"))
+	if err != nil || string(got) != readmeTxt {
+		t.Errorf("expected Contents/Readme-plist.txt to be copied verbatim, got %q, err %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(appPath, "Contents", "Info.plist")); err == nil {
+		t.Error("expected copying the placeholder docs to have no effect on real Info.plist handling")
 	}
 }

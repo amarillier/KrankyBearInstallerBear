@@ -56,6 +56,20 @@ func main() {
 		os.Exit(runCLI(os.Args[1:]))
 	}
 
+	// On Linux, a headless server or an SSH session with no display
+	// forwarding has neither DISPLAY nor WAYLAND_DISPLAY set — GLFW can't
+	// do anything useful there, and previously failed with a raw
+	// "NotInitialized" panic and a stack trace (confirmed on a real
+	// headless Ubuntu box) instead of an actionable message. Same check,
+	// same message pattern as this project's sibling TaniumSensorExplorer.
+	if !guiDisplayAvailable() {
+		fmt.Fprintf(os.Stderr, "Cannot start the desktop interface: no graphical display detected.\n"+
+			"On Linux, set DISPLAY (X11) or WAYLAND_DISPLAY (Wayland), or reconnect with SSH display forwarding (ssh -X/-Y).\n"+
+			"Use the command-line interface instead:\n\n")
+		printCLIUsage()
+		os.Exit(0)
+	}
+
 	langFlag := flag.String("lang", "", "UI language code (e.g. en, de); overrides the saved preference for this run")
 	mesaFallbackFlag := flag.Bool(startup.MesaFallbackFlagName, false, "internal: relaunch flag for the Mesa3D OpenGL fallback (Windows only)")
 	flag.Parse()

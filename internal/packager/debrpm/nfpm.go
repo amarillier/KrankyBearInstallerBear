@@ -113,7 +113,20 @@ func buildInfo(proj *packproject.Project, arch string, bin packproject.BinaryEnt
 	installDir := proj.Install.Linux
 	binName := packager.Slug(proj.Identity.Name)
 
+	// installDir itself (e.g. /opt/AppName) is never the explicit
+	// destination of anything below - only ever the parent of the binary,
+	// License.txt, and any Payload entries - so on its own it only ever
+	// gets registered as an unowned "implicit" directory (a plain parent-
+	// of-file), which rpm's builder skips entirely and never cleans up on
+	// erase (same root cause as excludeFilteredTree's own directory-entry
+	// fix above, one level up: confirmed via a real `rpm -e` leaving this
+	// one directory - and only this one - behind, empty, after that fix).
+	// An explicit TypeDir entry here fixes it the same way; nfpm safely
+	// upgrades any already-implicit entry at the same destination rather
+	// than treating this as a collision (see files.PrepareForPackager's
+	// own TypeDir case).
 	contents := files.Contents{
+		{Destination: installDir, Type: files.TypeDir},
 		{Source: proj.ResolvePath(bin.Path), Destination: filepath.Join(installDir, binName), Type: files.TypeFile},
 	}
 
@@ -212,8 +225,21 @@ func buildInfo(proj *packproject.Project, arch string, bin packproject.BinaryEnt
 
 // excludeFilteredTree walks srcDir and returns one files.Content{Type:
 // TypeFile} per file whose path relative to srcDir doesn't match
-// entry.ExcludesMatch — see buildInfo's own comment on why this exists:
-// nfpm's TypeTree has no exclude concept of its own.
+// entry.ExcludesMatch, plus one files.Content{Type: TypeDir} per surviving
+// directory — see buildInfo's own comment on why this exists: nfpm's
+// TypeTree has no exclude concept of its own.
+//
+// The directory entries matter, not just cosmetically: a plain TypeFile
+// list gives rpm/deb no ownership record for the directories those files
+// sit in, only an unowned "implicit" parent-of-file (nfpm's own TypeTree
+// expansion emits explicit TypeDir entries for this exact reason, since a
+// real .rpm's own %files section is what actually removes a directory on
+// uninstall). This was a real bug, found via `rpm -e` on a real machine:
+// every payload file got removed, but every directory it had lived in was
+// left behind, empty, forever — since this func used to just skip
+// directories entirely (`if d.IsDir() { return nil }`, no Content emitted
+// at all). Confirmed the fix by rebuilding a real .rpm and checking
+// `rpm -qlv` actually lists these paths with directory mode bits now.
 func excludeFilteredTree(srcDir, destDir string, entry packproject.PayloadEntry) (files.Contents, error) {
 	var out files.Contents
 	err := filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
@@ -230,12 +256,17 @@ func excludeFilteredTree(srcDir, destDir string, entry packproject.PayloadEntry)
 			}
 			return nil
 		}
+		dest := filepath.Join(destDir, rel)
 		if d.IsDir() {
+			out = append(out, &files.Content{
+				Destination: dest,
+				Type:        files.TypeDir,
+			})
 			return nil
 		}
 		out = append(out, &files.Content{
 			Source:      path,
-			Destination: filepath.Join(destDir, rel),
+			Destination: dest,
 			Type:        files.TypeFile,
 		})
 		return nil

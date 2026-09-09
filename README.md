@@ -64,14 +64,41 @@ fixing and performance work.
   install-dir marker, uninstaller that stops the running exe first.
 - **Windows `.msi`** — a real MSI via `wixl` (GNOME msitools): stable
   UpgradeCode with a per-build ProductCode, binary + payload tree, Start Menu
-  shortcut.
-- **macOS `.pkg`** — assembles a genuine `.app` bundle (Info.plist, `.icns`,
-  CLI symlink) then calls Apple's `pkgbuild`. macOS-only backend.
+  shortcut, and (when a license file is set) a full Welcome/License/Progress
+  wizard via wixl's bundled WixUI_Minimal-equivalent extension, gated by an
+  `ACCEPTEULA=1` launch condition for silent/unattended installs.
+- **macOS `.pkg`** — assembles a genuine `.app` bundle (`.icns`, CLI
+  symlink) then calls Apple's `pkgbuild` in `--root` mode (not
+  `--component`, which requires a real `Info.plist` and refuses to build
+  without one). No `Info.plist` is created by default — only copied in,
+  verbatim, if the project directory already has a real one (e.g. a
+  renamed `Info-plist.txt` placeholder); some IT security scanning flags
+  a real `Info.plist`, and macOS itself doesn't require one for an app to
+  run or be found by Spotlight. `Info-plist.txt`/`Readme-plist.txt`, if
+  present in the project directory, are auto-copied verbatim into
+  `Contents/` (a sibling of `MacOS/`) as harmless documentation — a
+  Payload entry can't reach that location, since Payload always lands
+  under `Contents/MacOS/`. macOS-only backend.
 - **Linux `.deb` / `.rpm`** — via `nfpm` (pure Go, no `fpm`/Ruby, no
   `rpmbuild`), so both formats build even from macOS or Windows.
 - Backends run independently — one target failing doesn't stop the others — and
   the same preflight logic is shared by the GUI and the CLI's `doctor` command,
   so they never disagree about whether a tool is available.
+
+### Silent / unattended installs (for scripted deployment)
+
+Both Windows installers already support the standard silent-install switches
+their underlying engines provide — nothing to configure in InstallerBear
+itself:
+
+- **`.exe`**: `Setup.exe /S` (NSIS's standard silent flag).
+- **`.msi`**: `msiexec /i pkg.msi /qn` (fully silent) or `/qb` (progress bar
+  only). Add `ALLUSERS=""` to install for the current user instead of the
+  per-machine default (`ALLUSERS` is a public MSI property, so it's
+  overridable on the command line even though the package authors it as
+  `1`). If a license file is set, also pass `ACCEPTEULA=1` — otherwise the
+  install refuses to proceed unattended (see above), since a silent run
+  never shows the license dialog to accept in the first place.
 
 ### Headless CLI
 
@@ -122,6 +149,9 @@ installerbear -help   # or -?
 ## Cross-platform support
 
 - **Linux**: GNOME, KDE, XFCE, Cinnamon, MATE, etc. on X11 or Wayland.
+  Launching with no `DISPLAY`/`WAYLAND_DISPLAY` set (a headless server, or
+  an SSH session without display forwarding) prints a clear message
+  pointing at the CLI instead of a raw GLFW crash/panic.
 - **macOS**: 10.13 (High Sierra) or later.
 - **Windows**: Windows 10 or later. Some VMs and locked-down hosts have no
   usable hardware OpenGL, which most Fyne apps otherwise crash or hang on
@@ -152,6 +182,41 @@ Platform helpers: `compile-mac.sh`, `compile-win.sh`, `compile-linux.sh`, and
 External tools used by the packaging backends (only needed for the targets you
 actually build): `makensis` (NSIS), `wixl` (msitools), `pkgbuild` (macOS,
 built-in), `nfpm` (bundled as a Go dependency, no external install needed).
+
+### Building on Windows
+
+Today's workflow builds InstallerBear itself on the Mac (`compile-win.sh` syncs
+source to a Windows box over SSH, compiles there, syncs the `.exe` back), then
+packages everything from the Mac. If the Mac is ever replaced by a Windows
+machine, here's what that Windows host needs installed to keep doing both
+jobs itself:
+
+- **Go + a C compiler** — Fyne requires cgo. MSYS2/MinGW-w64
+  (`mingw-w64-x86_64-gcc`) or TDM-GCC, whichever `go env CC` resolves to.
+- **`makensis` (NSIS)**, for the `.exe` — `choco install nsis` or
+  `scoop install nsis`, or the official installer from nsis.sourceforge.io.
+  Make sure its `Bin` folder is on `PATH`.
+- **`wixl` (msitools)**, for the `.msi` — not native to Windows; install via
+  MSYS2: `pacman -S mingw-w64-x86_64-msitools`, then put that MSYS2 mingw64
+  `bin` directory on `PATH`. This gives you `wixl.exe` directly, no WSL
+  needed.
+- **`nfpm`** for `.deb`/`.rpm` — nothing to install; it's a pure-Go
+  dependency built into `installerbear.exe` itself, so these two already
+  build fine on Windows today.
+- **`go-winres`** (`go install github.com/tc-hib/go-winres@latest`) to
+  regenerate `rsrc_windows_amd64.syso` (InstallerBear's own exe icon/version)
+  locally instead of relying on the Mac→Windows sync in `compile-win.sh`.
+- **macOS `.pkg` — the one tool you can't get back.** `pkgbuild` is Apple's
+  own tool with no Windows or Linux equivalent, and `macpkg.HostSupported()`
+  hard-gates this backend to `darwin`. Losing the Mac means losing the
+  ability to produce `.pkg` unless you keep *some* access to macOS — a spare
+  Mac, or a CI runner (e.g. GitHub Actions' `macos-latest`). A local macOS VM
+  isn't a practical substitute here: Apple's license terms restrict
+  virtualizing macOS to genuine Apple hardware.
+
+Run `installerbear doctor` on whatever host you're on — it reports per-target
+readiness (host support + tool availability) without needing anything beyond
+InstallerBear itself.
 
 ## License
 

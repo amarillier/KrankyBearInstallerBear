@@ -1,4 +1,8 @@
 Unicode true
+!define MUI_ICON "C:\src\icon.ico"
+!define MUI_UNICON "C:\src\icon.ico"
+!include "MUI2.nsh"
+
 !define APP_NAME "Test App"
 !define APP_VERSION "1.2.3"
 !define APP_PUBLISHER "Someone"
@@ -12,13 +16,14 @@ RequestExecutionLevel admin
 Icon "C:\src\icon.ico"
 UninstallIcon "C:\src\icon.ico"
 
-Page license
-LicenseData "C:\src\LICENSE"
-Page directory
-Page instfiles
+!insertmacro MUI_PAGE_LICENSE "C:\src\LICENSE"
+!insertmacro MUI_PAGE_DIRECTORY
+!insertmacro MUI_PAGE_INSTFILES
 
-UninstPage uninstConfirm
-UninstPage instfiles
+!insertmacro MUI_UNPAGE_CONFIRM
+!insertmacro MUI_UNPAGE_INSTFILES
+
+!insertmacro MUI_LANGUAGE "English"
 
 Section "MainSection" SEC01
   SetOutPath "$INSTDIR"

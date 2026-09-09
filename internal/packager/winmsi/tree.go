@@ -46,7 +46,7 @@ func (d *dirNode) child(name string, used map[string]bool) *dirNode {
 // it (for the <Feature>'s ComponentRefs — WiX has no "ref everything under
 // this directory" shorthand, so the caller must enumerate them).
 func buildDirTree(proj *packproject.Project, bin packproject.BinaryEntry) (*dirNode, []string, error) {
-	used := map[string]bool{"INSTALLDIR": true, "ProgramFilesFolder": true, "TARGETDIR": true, "ProgramMenuFolder": true}
+	used := map[string]bool{"INSTALLDIR": true, "ProgramFiles64Folder": true, "TARGETDIR": true, "ProgramMenuFolder": true}
 	root := &dirNode{ID: "INSTALLDIR", Name: proj.Identity.Name}
 	var allComponents []string
 

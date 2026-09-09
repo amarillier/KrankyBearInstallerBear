@@ -22,10 +22,10 @@ Then (bigger; tackle once the above is proven):
   - Optional (user-toggleable) desktop icon/shortcut - winmsi creates one
     unconditional Start Menu shortcut only; winexe creates no shortcuts at
     all yet; nothing is user-toggleable on any backend
-  - Then: EULA accept-to-continue page (winexe/NSIS already does this for
-    real - a genuine accept/decline gate, not just a display page -
-    whenever Identity.LicenseFile is set; winmsi/macpkg/debrpm don't have
-    this at all yet, macpkg only ships the license text as a payload file
+  - Then: EULA accept-to-continue page (winexe/NSIS and winmsi both do this
+    for real now - a genuine accept/decline gate, not just a display page -
+    whenever Identity.LicenseFile is set; macpkg/debrpm still don't have
+    this at all, macpkg only ships the license text as a payload file
     today); prompt to open ReleaseNotes/README after install; run at
     startup/login (autostart - Linux's LinuxOptions.DesktopCategories/
     DesktopComment fields already exist in the schema but nothing
@@ -50,11 +50,24 @@ Smaller, uncategorized:
 - Improve "Show/Hide All Windows" to remember exactly which secondary windows
   were open, instead of the current blanket a.Driver().AllWindows() approach
   (which can re-show a window closed earlier in the session)
+- winexe Setup.exe: make -?/-help/--help actually print something useful
+  (the silent-install switch, /D=, license note, etc.), instead of being
+  silently ignored like any other unrecognized NSIS command-line argument
+  today (it just launches the normal wizard). Allan's own stated
+  motivation, worth keeping verbatim: "any time I need silent install
+  strings for installations I try -? or -help first to see if the
+  installer provides any, then curse the packager and start hunting repo/
+  home page docs to see if they provide any" - i.e. this is about making
+  our own installers the kind that don't provoke that reaction. NSIS can
+  do this via $CMDLINE/GetOptions plus a MessageBox for a recognized flag;
+  msiexec already shows its own (generic, not package-specific) help for
+  the .msi side today, unprompted, so this is a winexe-only gap. Wanted,
+  not critical.
 
 Maybe later considerations, defer for now, lower value
   - maybe some day i18n language support
 
-Version 0.2.0 - September 09, 2026
+Version 0.2.0 - September 11, 2026
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - New Project smart defaults: pick a folder and best-effort-fill Publisher,
   URL, License file, and icons from its git remote/identity, LICENSE file,
@@ -103,6 +116,13 @@ Version 0.2.0 - September 09, 2026
   match whether Source is actually a file or a directory, before it can
   reach a backend and fail with a confusing error (or, worse, silently
   build a wrong layout)
+- Fixed Validate flagging several differently-named files that legitimately
+  share one Dest directory (e.g. three separate mesa-fallback files) as
+  duplicate-destination collisions - hit while migrating this very
+  project. The collision key now also considers the installed filename
+  (Dest + Source's basename) for a non-recursive entry, not Dest alone;
+  a Recursive entry's whole tree is still the installed extent, so those
+  still collide on Dest by itself
 - Payload tab: columns are now resizable (drag a header boundary) and
   ellipsize long paths instead of overflowing into the next column; Add
   File/Add Folder no longer leaves Dest blank when Source is filled in
@@ -130,6 +150,80 @@ Version 0.2.0 - September 09, 2026
   -overwrite (default: blanks only, since there's no human to click a
   checkbox), skips a Payload entry whose Source is already present (safe to
   re-run against an already-migrated project), and supports -dry-run
+- Fixed three real Windows-install bugs found via hands-on testing on
+  actual Windows hardware, none of which any existing test had caught:
+  (1) the default Windows install path used Inno Setup's "{autopf}"
+  placeholder, which NSIS doesn't understand and wrote into the script as
+  a literal, unresolved string; (2) the .msi never set ALLUSERS, so
+  Windows Installer defaulted to a per-user context that silently failed
+  to elevate against the Program-Files-rooted directory tree, leaving
+  neither files nor a Programs-and-Features entry behind, with no error
+  shown; (3) even after that fix, the .msi installed into "Program Files
+  (x86)" instead of "Program Files" - ProgramFilesFolder always means the
+  32-bit path on 64-bit Windows regardless of package bitness; getting the
+  real 64-bit path needs the separate ProgramFiles64Folder standard
+  directory id instead
+- Windows Setup.exe now uses NSIS's Modern UI 2 (MUI2) instead of the old
+  bare "classic" UI - a noticeably bigger wizard window and a properly
+  readable license text box, matching what Inno Setup users are used to.
+  Also fixes the installer-window icon going missing after that switch
+  (MUI2 needs its own MUI_ICON/MUI_UNICON defines; the plain Icon/
+  UninstallIcon directives alone aren't enough once MUI2 is in play)
+- Windows .msi gained a real Welcome/License/Progress wizard (whenever
+  Identity.LicenseFile is set), via wixl's bundled WixUI_Minimal-equivalent
+  extension - verified empirically against a real compiled .msi, since
+  GNOME's own docs only ever claimed installer UI support was missing.
+  Silent/unattended installs (msiexec /qn or /qb) skip this dialog
+  entirely as normal, so a new ACCEPTEULA=1 launch condition now blocks a
+  silent install unless that's passed explicitly, matching how other
+  vendors' MSI packages handle EULA acceptance for scripted deployment
+- Documented the existing (no code changes needed) silent/unattended
+  install switches for both Windows installers in the README: Setup.exe
+  /S, msiexec /qn or /qb, and ALLUSERS="" for a current-user-only .msi
+  install (ALLUSERS is a public property, so it's already overridable on
+  the command line despite the package authoring it as 1 by default)
+- Fixed macpkg always synthesizing a real Info.plist from Identity fields,
+  which conflicted with this project's own historical package.sh/fpm
+  convention of deliberately never having a real one (verified against a
+  real installed sibling app - some IT security scanning apparently flags
+  it, and macOS itself doesn't require it for an app to run or be found by
+  Spotlight). No Info.plist is created by default now; one is only copied
+  in, verbatim, if the project directory already has a real Info.plist
+  file (e.g. a deliberately-renamed Info-plist.txt placeholder). This also
+  needed switching pkgbuild from --component to --root mode - --component
+  requires a valid bundle with Info.plist and hard-refuses otherwise,
+  confirmed empirically, while --root just packages the directory as-is
+- macpkg now also auto-copies Info-plist.txt/Readme-plist.txt into
+  Contents/ (a sibling of MacOS/) verbatim, if present in the project
+  directory, matching package.sh's own layout for these two placeholder/
+  documentation files exactly - a Payload entry can't reach that location
+  since Payload always lands under Contents/MacOS/
+- Fixed a real rpm bug found via `rpm -e` on a real machine: every payload
+  file installed correctly, but every directory it lived in was left
+  behind empty forever on uninstall. Root cause: a Recursive Payload entry
+  with Excludes set (this project's own assets/ entry, excluding
+  mesa-win/*, among them) went through a path that emitted file entries
+  only, silently dropping every directory - unlike an Excludes-free
+  Recursive entry, which nfpm's own TypeTree expansion already handles
+  correctly. rpm specifically needs an explicit directory entry (not just
+  an implicit parent-of-file) to actually own and clean one up again.
+  Confirmed fixed by rebuilding a real .rpm and checking `rpm -qlv` lists
+  those paths with directory mode bits now. .deb was very likely
+  unaffected by this one (its builder tars every directory, implicit or
+  not) - confirmed via nfpm's own source, not yet independently retested.
+  One level up from that fix, the install root itself (e.g. /opt/AppName)
+  was still left behind empty after a real `rpm -e` - it's never the
+  explicit destination of anything, only ever the parent of the
+  binary/License.txt/Payload entries, so the same "implicit directories
+  aren't owned" rule applied to it too. buildInfo now adds an explicit
+  directory entry for the install root directly
+- Fixed a raw GLFW panic ("NotInitialized", full Go stack trace) on Linux
+  when launching the GUI with no DISPLAY/WAYLAND_DISPLAY set (a headless
+  server, or an SSH session with no display forwarding) - confirmed on a
+  real headless Ubuntu box. Now prints a clear message pointing at the CLI
+  instead, and exits cleanly. Same check/message pattern as this project's
+  sibling TaniumSensorExplorer (gui_display_linux.go/
+  gui_display_nonlinux.go, checked before app.NewWithID is ever called)
 
 Version 0.1.0 - September 03, 2026
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -87,10 +87,23 @@ func validatePayload(entries []PayloadEntry, baseDir string) error {
 			errs = append(errs, fmt.Errorf("payload dest %q escapes the install root", e.Dest))
 		}
 
-		if firstSrc, dup := seenDest[dest]; dup {
+		// Dest is always a destination *directory* (see PayloadEntry's own
+		// doc comment) — so two non-recursive entries only actually
+		// collide if they'd install the same final file (same Dest *and*
+		// the same Source basename, e.g. two different source dirs each
+		// contributing their own "opengl32.dll" into the same Dest); two
+		// files with different basenames sharing one Dest is the normal,
+		// intended case (several files landing in one folder), not a
+		// collision. A Recursive entry's whole tree is the installed
+		// extent, so those still collide on Dest alone.
+		collisionKey := dest
+		if !e.Recursive && e.Source != "" {
+			collisionKey = dest + "/" + filepath.Base(e.Source)
+		}
+		if firstSrc, dup := seenDest[collisionKey]; dup {
 			errs = append(errs, fmt.Errorf("payload dest %q used by both %q and %q", e.Dest, firstSrc, e.Source))
 		} else {
-			seenDest[dest] = e.Source
+			seenDest[collisionKey] = e.Source
 		}
 
 		if baseDir == "" || e.Source == "" {

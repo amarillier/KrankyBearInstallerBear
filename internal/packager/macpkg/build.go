@@ -61,8 +61,7 @@ func (p macpkgPackager) Build(ctx context.Context, proj *packproject.Project, op
 	defer os.RemoveAll(stagingDir)
 
 	p.emit(progress, "assembling .app bundle...")
-	appPath, err := BuildAppBundle(proj, arch, stagingDir)
-	if err != nil {
+	if _, err := BuildAppBundle(proj, arch, stagingDir); err != nil {
 		return "", err
 	}
 
@@ -79,8 +78,16 @@ func (p macpkgPackager) Build(ctx context.Context, proj *packproject.Project, op
 	}
 	outPath := filepath.Join(outDir, fmt.Sprintf("%s_%s_%s.pkg", packager.Slug(proj.Identity.Name), proj.Identity.Version, arch))
 
+	// --root (not --component): --component requires a valid bundle with a
+	// real Info.plist and hard-refuses otherwise ("is not a valid bundle
+	// component") - confirmed empirically. --root just packages whatever's
+	// in stagingDir as-is, no such validation, matching what this
+	// project's previous fpm/osxpkg-based packaging has always done and
+	// letting Info.plist stay genuinely optional (see bundle.go). appPath
+	// is stagingDir's only entry, so this packages the exact same content
+	// --component would have, just without requiring Info.plist to do it.
 	args := []string{
-		"--component", appPath,
+		"--root", stagingDir,
 		"--install-location", filepath.Dir(proj.Install.MacOS),
 		"--identifier", proj.Identity.ID,
 		"--version", proj.Identity.Version,

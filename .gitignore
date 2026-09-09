@@ -9,6 +9,7 @@
 test/*
 test.log
 test-*.log
+bearinstallers/*
 
 # IDE and editor files
 .vscode/

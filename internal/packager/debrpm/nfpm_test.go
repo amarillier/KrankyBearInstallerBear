@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/goreleaser/nfpm/v2/files"
+
 	"installerbear/internal/packager"
 	"installerbear/internal/packproject"
 )
@@ -151,6 +153,39 @@ func TestBuildInfo_License(t *testing.T) {
 
 	if info.License != "GPL v3" {
 		t.Errorf("License = %q, want GPL v3", info.License)
+	}
+}
+
+// TestBuildInfo_OwnsInstallRootDirectory is a regression test for a real
+// bug found via `rpm -e` on a real machine, one level up from the
+// excludeFilteredTree directory-ownership fix: even with that fix in
+// place, the install root itself (e.g. /opt/TestApp) was left behind,
+// empty, after uninstall - it's never the explicit destination of
+// anything, only ever the parent of the binary/License.txt/Payload
+// entries, so on its own it only ever gets registered as an unowned
+// implicit directory, which rpm's builder skips. buildInfo now adds an
+// explicit TypeDir entry for it directly.
+func TestBuildInfo_OwnsInstallRootDirectory(t *testing.T) {
+	dir := t.TempDir()
+	proj := sampleProject(t, dir)
+
+	info, cleanup, err := buildInfo(proj, "amd64", proj.Binaries[0])
+	if err != nil {
+		t.Fatalf("buildInfo: %v", err)
+	}
+	defer cleanup()
+
+	var found bool
+	for _, c := range info.Overridables.Contents {
+		if c.Destination == proj.Install.Linux {
+			if c.Type != files.TypeDir {
+				t.Errorf("expected %q to be a TypeDir entry, got type %q", proj.Install.Linux, c.Type)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected an explicit directory entry for the install root %q, got %+v", proj.Install.Linux, info.Overridables.Contents)
 	}
 }
 

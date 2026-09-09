@@ -6,7 +6,11 @@ import "fmt"
 // left blank in the loaded YAML. It mutates p in place.
 func (p *Project) Defaults() {
 	if p.Install.Windows == "" {
-		p.Install.Windows = fmt.Sprintf(`{autopf}\%s`, p.Identity.Name)
+		// $PROGRAMFILES64 is an NSIS runtime variable, resolved by makensis
+		// itself at install time — NOT Inno Setup's "{autopf}" constant,
+		// which NSIS doesn't understand and would bake into the script as
+		// a literal, unresolved path.
+		p.Install.Windows = fmt.Sprintf(`$PROGRAMFILES64\%s`, p.Identity.Name)
 	}
 	if p.Install.MacOS == "" {
 		p.Install.MacOS = fmt.Sprintf("/Applications/%s.app", p.Identity.Name)

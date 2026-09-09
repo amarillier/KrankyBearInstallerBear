@@ -62,15 +62,41 @@ func TestValidate_WindowsGUIDRequiredOnlyForWindowsTargets(t *testing.T) {
 	}
 }
 
+// TestValidate_PayloadDuplicateDest is a real collision: two different
+// source files that would both install as "docs/a.txt" (same Dest
+// directory, same final basename) — Dest is always a directory (see
+// PayloadEntry's own doc comment), so the collision key is Dest plus the
+// installed filename, not Dest alone.
 func TestValidate_PayloadDuplicateDest(t *testing.T) {
 	p := validProject()
 	p.Payload = []PayloadEntry{
-		{Source: "a.txt", Dest: "docs/a.txt"},
-		{Source: "b.txt", Dest: "docs/a.txt"},
+		{Source: "sub1/a.txt", Dest: "docs"},
+		{Source: "sub2/a.txt", Dest: "docs"},
 	}
 	err := p.Validate("")
 	if err == nil || !strings.Contains(err.Error(), `used by both`) {
 		t.Fatalf("expected duplicate dest error, got %v", err)
+	}
+}
+
+// TestValidate_PayloadSameDestDifferentFilesIsNotACollision is a
+// regression test for a real bug hit while migrating this very project:
+// three individually-listed mesa-fallback files (opengl32.dll,
+// libgallium_wgl.dll, .force-mesa-fallback.sample) all destined for the
+// same "mesa-fallback" directory were flagged as duplicate destinations,
+// even though each installs under its own distinct filename and none of
+// them actually collide. Sharing one destination *directory* across
+// several differently-named files is the normal case a non-recursive
+// Payload entry is for, not an error.
+func TestValidate_PayloadSameDestDifferentFilesIsNotACollision(t *testing.T) {
+	p := validProject()
+	p.Payload = []PayloadEntry{
+		{Source: "assets/mesa-win/opengl32.dll", Dest: "mesa-fallback"},
+		{Source: "assets/mesa-win/libgallium_wgl.dll", Dest: "mesa-fallback"},
+		{Source: "assets/mesa-win/.force-mesa-fallback.sample", Dest: "mesa-fallback"},
+	}
+	if err := p.Validate(""); err != nil {
+		t.Fatalf("three differently-named files sharing one Dest directory should not error: %v", err)
 	}
 }
 

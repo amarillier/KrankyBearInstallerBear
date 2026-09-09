@@ -49,6 +49,37 @@ func sampleWxsData() wxsData {
 	}
 }
 
+func TestWxsTemplate_License(t *testing.T) {
+	data := sampleWxsData()
+	data.HasLicense = true
+
+	var buf bytes.Buffer
+	if err := wxsTemplate.Execute(&buf, data); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	out := buf.String()
+
+	for _, want := range []string{"<UIRef Id='WixUI_Minimal'/>", "<Condition Message=", `ACCEPTEULA="1"`} {
+		if !bytes.Contains([]byte(out), []byte(want)) {
+			t.Errorf("expected %q in output when HasLicense is true:\n%s", want, out)
+		}
+	}
+}
+
+func TestWxsTemplate_NoLicense(t *testing.T) {
+	var buf bytes.Buffer
+	if err := wxsTemplate.Execute(&buf, sampleWxsData()); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	out := buf.String()
+
+	for _, unwanted := range []string{"WixUI_Minimal", "ACCEPTEULA", "<Condition"} {
+		if bytes.Contains([]byte(out), []byte(unwanted)) {
+			t.Errorf("expected no %q in output when HasLicense is false:\n%s", unwanted, out)
+		}
+	}
+}
+
 func TestWxsTemplate_Golden(t *testing.T) {
 	var buf bytes.Buffer
 	if err := wxsTemplate.Execute(&buf, sampleWxsData()); err != nil {

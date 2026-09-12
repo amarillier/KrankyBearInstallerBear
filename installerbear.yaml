@@ -1,0 +1,74 @@
+identity:
+    name: KrankyBearInstallerBear
+    id: com.github.amarillier.KrankyBearInstallerBear
+    version: 0.3.0
+    publisher: Allan Marillier, 2026-
+    vendor: Allan Marillier
+    url: https://github.com/amarillier/KrankyBearInstallerBear
+    description: KrankyBear InstallerBear - Cross-platform Fyne installer / packager application
+    license: GPL v3
+    license_file: LICENSE
+    icons:
+        ico: assets/images/KrankyBearInstallerBear.ico
+        icns: assets/images/KrankyBearInstallerBear.icns
+        png: assets/images/KrankyBearInstallerBear.png
+binaries:
+    - os: windows
+      arch: amd64
+      path: bin/KrankyBearInstallerBear.exe
+    - os: darwin
+      arch: amd64
+      path: bin/krankybear-installerbear-macos-amd64
+    - os: darwin
+      arch: arm64
+      path: bin/krankybear-installerbear-macos-arm64
+    - os: linux
+      arch: amd64
+      path: bin/krankybear-installerbear-linux-amd64
+    - os: linux
+      arch: arm64
+      path: bin/krankybear-installerbear-linux-arm64
+payload:
+    - source: assets
+      dest: assets
+      recursive: true
+      excludes:
+        - mesa-win/*
+    - source: ReleaseNotes.md
+      dest: ""
+    - source: sample-installerbear.yaml
+      dest: ""
+    - source: assets/mesa-win/opengl32.dll
+      dest: mesa-fallback
+      os:
+        - windows
+    - source: assets/mesa-win/libgallium_wgl.dll
+      dest: mesa-fallback
+      os:
+        - windows
+    - source: assets/mesa-win/.force-mesa-fallback.sample
+      dest: mesa-fallback
+      os:
+        - windows
+install:
+    windows: $PROGRAMFILES64\KrankyBearInstallerBear
+    macos: /Applications/KrankyBearInstallerBear.app
+    linux: /opt/KrankyBearInstallerBear
+install_experience:
+    launch_after_install: true
+    desktop_shortcut: true
+windows:
+    upgrade_guid: '{55F17CC0-57CC-43E9-A0A4-84C4AAECADE8}'
+    exe_name: KrankyBearInstallerBear.exe
+macos:
+    bundle_executable: KrankyBear-InstallerBear.exe
+targets:
+    - deb
+    - rpm
+    - macpkg
+    - winexe
+    - winmsi
+output:
+    dir: ./bearinstallers
+    filename_template: '{{.Identity.Name}}_{{.Identity.Version}}_{{.Arch}}'
+    clean_old_versions: true

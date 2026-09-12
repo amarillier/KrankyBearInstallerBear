@@ -49,7 +49,7 @@ func TestBuildDirTree_PayloadExcludes(t *testing.T) {
 	}
 	bin := packproject.BinaryEntry{OS: "windows", Arch: "amd64", Path: binPath}
 
-	root, _, err := buildDirTree(proj, bin)
+	root, _, _, err := buildDirTree(proj, bin)
 	if err != nil {
 		t.Fatalf("buildDirTree: %v", err)
 	}

@@ -2,7 +2,7 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 
 #define MyAppName "KrankyBearInstallerBear"
-#define MyAppVersion "0.2.0"
+#define MyAppVersion "0.3.0"
 #define MyAppPublisher "Allan Marillier, 2025-"
 #define MyAppURL "https://github.com/amarillier/KrankyBearInstallerBear"
 #define MyAppExeName "KrankyBearInstallerBear.exe"
@@ -57,7 +57,7 @@ Source: "..\assets\images\KrankyBearInstallerBear.ico"; DestDir: "{app}"; Flags:
 ; wasteful, and the runtime fallback (internal/startup/mesa_fallback_windows.go)
 ; only ever looks in <exe dir>\mesa-fallback.
 Source: "..\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "mesa-win\*"
-Source: "..\ReleaseNotes.txt"; DestDir: "{app}"; Flags: isreadme
+Source: "..\ReleaseNotes.md"; DestDir: "{app}"; Flags: isreadme
 ; Mesa3D software OpenGL fallback — staged in its own subfolder, NOT {app}
 ; directly, so normal launches keep using real hardware OpenGL. The app only
 ; moves these into {app} directly if a hardware OpenGL probe fails first; see

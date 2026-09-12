@@ -5,16 +5,17 @@ package packproject
 // Project describes everything needed to build installers/packages for one
 // application across Windows, macOS, and Linux.
 type Project struct {
-	Identity Identity         `yaml:"identity"`
-	Binaries []BinaryEntry    `yaml:"binaries"`
-	Payload  []PayloadEntry   `yaml:"payload,omitempty"`
-	Install  InstallLocations `yaml:"install,omitempty"`
-	Hooks    Hooks            `yaml:"hooks,omitempty"`
-	Windows  WindowsOptions   `yaml:"windows,omitempty"`
-	MacOS    MacOSOptions     `yaml:"macos,omitempty"`
-	Linux    LinuxOptions     `yaml:"linux,omitempty"`
-	Targets  []string         `yaml:"targets"`
-	Output   OutputOptions    `yaml:"output,omitempty"`
+	Identity          Identity          `yaml:"identity"`
+	Binaries          []BinaryEntry     `yaml:"binaries"`
+	Payload           []PayloadEntry    `yaml:"payload,omitempty"`
+	Install           InstallLocations  `yaml:"install,omitempty"`
+	Hooks             Hooks             `yaml:"hooks,omitempty"`
+	InstallExperience InstallExperience `yaml:"install_experience,omitempty"`
+	Windows           WindowsOptions    `yaml:"windows,omitempty"`
+	MacOS             MacOSOptions      `yaml:"macos,omitempty"`
+	Linux             LinuxOptions      `yaml:"linux,omitempty"`
+	Targets           []string          `yaml:"targets"`
+	Output            OutputOptions     `yaml:"output,omitempty"`
 
 	// BaseDir is the directory the project file lives in. Every backend
 	// resolves relative Source/LicenseFile/icon paths against it. Set by
@@ -91,6 +92,57 @@ type InstallLocations struct {
 type Hooks struct {
 	PreInstall    string `yaml:"pre_install,omitempty"`
 	PostUninstall string `yaml:"post_uninstall,omitempty"`
+}
+
+// InstallExperience covers "what happens once the files are down" -
+// launch-after-install and an optional desktop shortcut today, more later
+// (open-a-file, autostart) once these are proven. Deliberately two
+// structured booleans rather than one generic post-install hook string:
+// unlike Hooks.PreInstall/PostUninstall (POSIX shell text, meaningful on
+// macpkg/debrpm since both run on Unix), NSIS/MSI have no shell
+// interpreter at all, so each backend needs to wire these up its own
+// native way rather than interpreting a portable script.
+//
+// LaunchAfterInstall is a genuine end-user choice: opting it in here adds
+// a real, checked-by-default "Launch <App> now?" checkbox to the
+// winexe/winmsi finish page (both have a native, no-extra-dependency
+// mechanism for this - NSIS's MUI_FINISHPAGE_RUN, wixl's
+// WIXUI_EXITDIALOGOPTIONALCHECKBOX+CustomAction, confirmed empirically
+// against a real compiled .msi's CustomAction/ControlEvent tables). Not
+// applicable to macpkg/debrpm - no installer-time "launch it now" UI
+// convention exists there, and auto-launching a GUI app from a postinstall
+// script could actively break a headless/CI package install.
+//
+// DesktopShortcut always means "offer a Desktop shortcut in addition to
+// the Start Menu one both backends already create unconditionally" when
+// set, but the two backends differ in *how* the person installing gets a
+// say: winexe/NSIS gives them a real, checked-by-default Components-page
+// checkbox (NSIS can do this cheaply - an optional Section + a Components
+// page). winmsi/wixl can't offer the same interactive choice: wixl's
+// bundled UI extension only ships WixUI_Minimal, not the fuller
+// WixUI_FeatureTree/Mondo variants a real "create a desktop icon?"
+// checkbox would need, so there this is a plain author-time yes/no baked
+// into the installer instead - confirmed as an acceptable asymmetry
+// rather than withholding the winexe checkbox for consistency. Windows-only
+// for now (macOS has no real "desktop icon" convention distinct from
+// /Applications; Linux .desktop-file generation is tracked separately, a
+// bigger feature of its own).
+//
+// AutostartAtLogin follows the exact same split as DesktopShortcut, for
+// the same underlying reason (wixl's UI limitation): a real,
+// unchecked-by-default Components-page checkbox on winexe (writing/
+// removing a per-user HKCU Run value - not HKLM, since autostarting for
+// every account on the machine isn't implied by one user opting in), an
+// author-time-only yes/no on winmsi. Unchecked by default (unlike
+// DesktopShortcut, which defaults checked): autostart is a much bigger
+// behavioral change for an end user to discover after the fact than an
+// extra shortcut is, so asking explicitly the first time seems safer than
+// defaulting it on. Windows-only, same reasoning as DesktopShortcut - less
+// value on macOS/Linux, tracked separately if it ever comes up there.
+type InstallExperience struct {
+	LaunchAfterInstall bool `yaml:"launch_after_install,omitempty"`
+	DesktopShortcut    bool `yaml:"desktop_shortcut,omitempty"`
+	AutostartAtLogin   bool `yaml:"autostart_at_login,omitempty"`
 }
 
 // WindowsOptions covers Setup.exe (NSIS) and .msi (WiX) specifics.

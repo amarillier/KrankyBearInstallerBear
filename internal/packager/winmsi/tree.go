@@ -42,22 +42,24 @@ func (d *dirNode) child(name string, used map[string]bool) *dirNode {
 
 // buildDirTree walks the project's binary, optional license file, and every
 // "windows"-targeted Payload entry into a directory tree rooted at
-// INSTALLDIR, returning the tree plus a flat list of every Component Id in
-// it (for the <Feature>'s ComponentRefs — WiX has no "ref everything under
-// this directory" shorthand, so the caller must enumerate them).
-func buildDirTree(proj *packproject.Project, bin packproject.BinaryEntry) (*dirNode, []string, error) {
+// INSTALLDIR, returning the tree, a flat list of every Component Id in it
+// (for the <Feature>'s ComponentRefs — WiX has no "ref everything under
+// this directory" shorthand, so the caller must enumerate them), and the
+// main binary's own <File> Id (needed as the LaunchApplication
+// CustomAction's FileKey when InstallExperience.LaunchAfterInstall is set).
+func buildDirTree(proj *packproject.Project, bin packproject.BinaryEntry) (root *dirNode, allComponents []string, binaryFileID string, err error) {
 	used := map[string]bool{"INSTALLDIR": true, "ProgramFiles64Folder": true, "TARGETDIR": true, "ProgramMenuFolder": true}
-	root := &dirNode{ID: "INSTALLDIR", Name: proj.Identity.Name}
-	var allComponents []string
+	root = &dirNode{ID: "INSTALLDIR", Name: proj.Identity.Name}
 
-	addFile := func(dir *dirNode, name, source string) {
+	addFile := func(dir *dirNode, name, source string) string {
 		fileID := uniqueID(used, "file_"+name)
 		compID := uniqueID(used, "cmp_"+name)
 		dir.Files = append(dir.Files, fileNode{ID: fileID, ComponentID: compID, Name: name, Source: source})
 		allComponents = append(allComponents, compID)
+		return fileID
 	}
 
-	addFile(root, proj.Windows.ExeName, proj.ResolvePath(bin.Path))
+	binaryFileID = addFile(root, proj.Windows.ExeName, proj.ResolvePath(bin.Path))
 	if proj.Identity.LicenseFile != "" {
 		addFile(root, "License.txt", proj.ResolvePath(proj.Identity.LicenseFile))
 	}
@@ -110,11 +112,11 @@ func buildDirTree(proj *packproject.Project, bin packproject.BinaryEntry) (*dirN
 			return nil
 		})
 		if walkErr != nil {
-			return nil, nil, fmt.Errorf("walking payload %q: %w", entry.Source, walkErr)
+			return nil, nil, "", fmt.Errorf("walking payload %q: %w", entry.Source, walkErr)
 		}
 	}
 
-	return root, allComponents, nil
+	return root, allComponents, binaryFileID, nil
 }
 
 // uniqueID sanitizes base into a valid WiX identifier

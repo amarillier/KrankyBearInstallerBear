@@ -6,12 +6,15 @@ import "text/template"
 // stable UpgradeCode (Product/@Id='*' auto-generates a fresh ProductCode
 // per build, which is exactly right — see this tool's plan notes on why
 // conflating the two breaks major-upgrade detection), the binary plus every
-// payload file/tree under INSTALLDIR, and a Start Menu shortcut. No custom
-// actions (e.g. taskkill-before-uninstall, as winexe has): wixl — the
-// backend this template targets — doesn't support the EXE-based CustomAction
-// pattern that would need, and it's less essential for MSI anyway, since the
-// Windows Installer service (unlike a raw NSIS script) already owns
-// file/registry/shortcut removal on uninstall without needing to be told to.
+// payload file/tree under INSTALLDIR, and a Start Menu shortcut (plus an
+// optional Desktop one and an optional "launch it now" finish-page checkbox
+// - see InstallExperience below). wixl genuinely does support an EXE-based
+// CustomAction (FileKey+ExeCommand, verified empirically against a real
+// compiled .msi's CustomAction/ControlEvent tables) — an earlier version of
+// this comment claimed otherwise; that was wrong. taskkill-before-uninstall
+// (which winexe has) still isn't replicated here, since it's less essential
+// for MSI: the Windows Installer service already owns file/registry/
+// shortcut removal on uninstall without needing to be told to.
 //
 // v3 schema (xmlns .../2006/wi), not v4/v5's newer StandardDirectory sugar:
 // this targets wixl (GNOME msitools), not Microsoft's own wix.exe — see
@@ -28,6 +31,35 @@ var wxsTemplate = template.Must(template.New("app.wxs").Parse(`<?xml version='1.
          no error dialog (there's no custom UI to show one in), and leaves
          nothing behind - no files, no Programs-and-Features entry. -->
     <Property Id='ALLUSERS' Value='1'/>
+{{if .IconFile}}
+    <!-- Without this, Windows Installer shows a generic default icon for
+         this product in "Apps & Features"/Programs and Features, unlike
+         most other installed apps - found in real Windows testing.
+         Verified empirically that wixl supports both the Icon table
+         entry and ARPPRODUCTICON (real compiled .msi's Icon/Property
+         tables both came out correct). Unrelated to the Windows/macOS
+         binary's own embedded icon (a property of how that binary itself
+         was compiled) - this is purely what Programs and Features shows. -->
+    <Icon Id='ProductIcon' SourceFile='{{.IconFile}}'/>
+    <Property Id='ARPPRODUCTICON' Value='ProductIcon'/>
+{{end}}
+{{if .LaunchAfterInstall}}
+    <!-- Adds a "Launch <App> now" checkbox to WixUI_Minimal's stock
+         ExitDialog (finish page) - the checkbox control itself already
+         exists in that dialog, gated on ...CHECKBOXTEXT being set (see
+         ExitDialog's own ShowCondition). ...CHECKBOX itself (a *different*
+         property - easy to conflate, and a real bug caught in testing:
+         the checkbox appeared but wasn't checked by default despite this
+         comment's own earlier claim that it would be) is the one that
+         actually drives whether the control starts checked - a WiX
+         CheckBox control reads its initial state from whether this
+         property already equals CheckBoxValue ("1") when the dialog
+         first shows, not from anything about ...CHECKBOXTEXT. The
+         Fragment after </Product> below wires the actual launch to it. -->
+    <Property Id='WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT' Value='Launch {{.AppName}} now'/>
+    <Property Id='WIXUI_EXITDIALOGOPTIONALCHECKBOX' Value='1'/>
+    <CustomAction Id='LaunchApplication' FileKey='{{.BinaryFileID}}' ExeCommand='' Return='asyncNoWait'/>
+{{end -}}
 {{if .HasLicense}}
     <!-- Blocks a fully unattended (/qn or /qb) install unless the caller
          explicitly passes ACCEPTEULA=1 - without this, silent automation
@@ -56,15 +88,45 @@ var wxsTemplate = template.Must(template.New("app.wxs").Parse(`<?xml version='1.
             <RemoveFolder Id='{{.ProgramMenuDirID}}' On='uninstall'/>
             <RegistryValue Root='HKCU' Key='Software\{{.Manufacturer}}\{{.AppName}}' Name='installed' Type='integer' Value='1' KeyPath='yes'/>
           </Component>
+{{if .AutostartAtLogin}}
+          <!-- Author-time-only, unlike winexe's real end-user checkbox -
+               wixl's bundled UI (WixUI_Minimal only) has no Components
+               page to offer a real choice here, same reasoning as
+               DesktopShortcut above (see InstallExperience's own doc
+               comment). A registry-value-only Component (no File) is a
+               standard WiX/MSI pattern - this Component's mere presence in
+               MainFeature below is the opt-in itself, since there's no UI
+               to conditionally select it through. HKCU (not HKLM): only
+               ever autostarts for the account that ran the install, not
+               every account on the machine. -->
+          <Component Id='{{.AutostartComponentID}}' Guid='*'>
+            <RegistryValue Root='HKCU' Key='Software\Microsoft\Windows\CurrentVersion\Run' Name='{{.AppName}}' Type='string' Value='[INSTALLDIR]{{.ShortcutTargetName}}' KeyPath='yes'/>
+          </Component>
+{{end}}
         </Directory>
       </Directory>
+{{if .DesktopShortcut}}
+      <!-- DesktopFolder is a standard WiX/MSI directory reference (like
+           ProgramMenuFolder above) - an author-time choice, not an
+           end-user one, unlike the Start Menu shortcut's own checkbox-free
+           unconditional presence above (see InstallExperience's own doc
+           comment on why this one isn't a real installer-time toggle). -->
+      <Directory Id='DesktopFolder'>
+        <Component Id='{{.DesktopShortcutComponentID}}' Guid='*'>
+          <Shortcut Id='DesktopShortcut' Name='{{.AppName}}' Target='[INSTALLDIR]{{.ShortcutTargetName}}' WorkingDirectory='INSTALLDIR'/>
+          <RegistryValue Root='HKCU' Key='Software\{{.Manufacturer}}\{{.AppName}}' Name='desktop_shortcut' Type='integer' Value='1' KeyPath='yes'/>
+        </Component>
+      </Directory>
+{{end}}
     </Directory>
 
     <Feature Id='MainFeature' Title='{{.AppName}}' Level='1'>
 {{range .AllComponentIDs}}      <ComponentRef Id='{{.}}'/>
 {{end}}      <ComponentRef Id='{{.ShortcutComponentID}}'/>
-    </Feature>
-{{if .HasLicense}}
+{{if .DesktopShortcut}}      <ComponentRef Id='{{.DesktopShortcutComponentID}}'/>
+{{end}}{{if .AutostartAtLogin}}      <ComponentRef Id='{{.AutostartComponentID}}'/>
+{{end}}    </Feature>
+{{if or .HasLicense .LaunchAfterInstall}}
     <!-- wixl's bundled "ui" extension (the "-ext ui" flag in build.go) reimplements
          WiX's stock WixUI_Minimal: Welcome/EULA, Progress, and Exit
          dialogs - verified empirically against a real compiled .msi
@@ -73,9 +135,29 @@ var wxsTemplate = template.Must(template.New("app.wxs").Parse(`<?xml version='1.
          WelcomeEulaDlg.wxs (part of this extension) reads the license
          text from a file it hardcodes as "License.rtf", resolved relative
          to this .wxs file's own directory - build.go writes one there,
-         converted from Identity.LicenseFile, whenever this block is used. -->
+         converted from Identity.LicenseFile, whenever this block is used
+         (a placeholder when LaunchAfterInstall is on but there's no real
+         license: WixUI_Minimal's Welcome/EULA page and ExitDialog's
+         Launch-now checkbox are one bundled stock UI, not separable, so
+         opting into the checkbox means also getting the license page). -->
     <UIRef Id='WixUI_Minimal'/>
 {{end}}  </Product>
+{{if .LaunchAfterInstall}}
+  <Fragment>
+    <!-- Wires the ExitDialog's "Launch now" checkbox (surfaced by setting
+         WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT above) to actually launch the
+         app: WixUI_Minimal's own ExitDialog already publishes its default
+         EndDialog/Return on Finish, so this adds a second, higher-priority
+         (lower Order) event on the same Control rather than replacing
+         anything - both fire, DoAction first, matching real WiX's own
+         WixUI_Minimal + CustomAction idiom for this. Verified empirically:
+         the resulting .msi's ControlEvent table has both events. -->
+    <UI Id='InstallerBearLaunchUI'>
+      <Publish Dialog='ExitDialog' Control='Finish' Event='DoAction' Value='LaunchApplication'
+               Condition='WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed'/>
+    </UI>
+  </Fragment>
+{{end}}
 </Wix>
 {{define "dir"}}<Directory Id='{{.ID}}' Name='{{.Name}}'>
 {{range .Files}}  <Component Id='{{.ComponentID}}' Guid='*'>
@@ -95,4 +177,33 @@ type wxsData struct {
 	// matching ACCEPTEULA launch condition. build.go sets this alongside
 	// writing the License.rtf file the dialog needs.
 	HasLicense bool
+	// LaunchAfterInstall adds a checked-by-default "Launch <App> now"
+	// checkbox to the finish page (an end-user choice at install time,
+	// opted into here by the project author) - see
+	// packproject.InstallExperience's own doc comment on this split.
+	// BinaryFileID is the main exe's own <File> Id (from buildDirTree),
+	// needed as the LaunchApplication CustomAction's FileKey.
+	LaunchAfterInstall bool
+	BinaryFileID       string
+	// DesktopShortcut adds a second shortcut on the Desktop alongside the
+	// Start Menu one this template always creates - an author-time choice,
+	// not something the person installing chooses (unlike
+	// LaunchAfterInstall above). DesktopShortcutComponentID is only used
+	// when this is true.
+	DesktopShortcut            bool
+	DesktopShortcutComponentID string
+	// AutostartAtLogin writes a per-user HKCU Run value at install time -
+	// always an author-time-only choice here (same reason as
+	// DesktopShortcut: wixl's bundled UI has no Components-page
+	// equivalent to offer a real end-user checkbox), unlike winexe's own
+	// AutostartAtLogin handling, which is a real, unchecked-by-default
+	// Components-page checkbox there. AutostartComponentID is only used
+	// when this is true.
+	AutostartAtLogin     bool
+	AutostartComponentID string
+	// IconFile is Identity.Icons.ICO's resolved path - shown in "Apps &
+	// Features"/Programs and Features via ARPPRODUCTICON when set. Not
+	// used for anything else here; the installed binary's own icon (if
+	// any) comes from however that binary itself was compiled.
+	IconFile string
 }

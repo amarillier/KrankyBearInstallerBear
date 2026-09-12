@@ -7,32 +7,18 @@ small, shippable, testable chunks rather than one big push - reassessed
 2026-09-09):
 
 Next up:
-- inline-editable payload table
 
 Then (bigger; tackle once the above is proven):
-- Install-experience options, built around a single new Hooks.PostInstall
-  hook point (today there's only PreInstall/PostUninstall, and only
-  macpkg/debrpm even read Hooks - winexe/winmsi don't touch it), since
-  launch-after-install/open-a-file/autostart are all "run something once
-  the files are down" variations of the same mechanism. Checked 2026-09-04
-  against what actually exists today (audited each backend's source, not
-  guessed) - start with the two most commonly expected behaviors:
-  - "Launch application now?" post-install prompt - not implemented on any
-    backend (no finish-page/Exec logic anywhere)
-  - Optional (user-toggleable) desktop icon/shortcut - winmsi creates one
-    unconditional Start Menu shortcut only; winexe creates no shortcuts at
-    all yet; nothing is user-toggleable on any backend
-  - Then: EULA accept-to-continue page (winexe/NSIS and winmsi both do this
-    for real now - a genuine accept/decline gate, not just a display page -
-    whenever Identity.LicenseFile is set; macpkg/debrpm still don't have
-    this at all, macpkg only ships the license text as a payload file
-    today); prompt to open ReleaseNotes/README after install; run at
-    startup/login (autostart - Linux's LinuxOptions.DesktopCategories/
-    DesktopComment fields already exist in the schema but nothing
-    currently generates a .desktop file from them at all); an uninstall
-    confirmation prompt for winexe (NSIS doesn't ask "are you sure?" by
-    default in the current minimal script); file associations and custom
-    installer wizard pages
+- Install-experience options, part 2 - Launch-after-install, a Windows-only
+  Desktop shortcut toggle, a Release Notes viewer, and a Windows-only
+  Run-at-startup (autostart) toggle all shipped in 0.3.0 (see below); still
+  open:
+  - Real Linux .desktop-file generation (autostart via an XDG autostart
+    entry, and a proper desktop-icon equivalent to Windows' Desktop
+    shortcut) - Linux's LinuxOptions.DesktopCategories/DesktopComment
+    fields already exist in the schema but nothing currently generates a
+    .desktop file from them at all
+  - File associations and custom installer wizard pages
   - Once these exist: [Registry]/[Icons]/[Tasks]/[Run]/[UninstallRun]/
     [UninstallDelete] importing for "Import Existing Config" - the
     importer already counts and reports these lines as skipped rather than
@@ -50,22 +36,185 @@ Smaller, uncategorized:
 - Improve "Show/Hide All Windows" to remember exactly which secondary windows
   were open, instead of the current blanket a.Driver().AllWindows() approach
   (which can re-show a window closed earlier in the session)
-- winexe Setup.exe: make -?/-help/--help actually print something useful
-  (the silent-install switch, /D=, license note, etc.), instead of being
-  silently ignored like any other unrecognized NSIS command-line argument
-  today (it just launches the normal wizard). Allan's own stated
-  motivation, worth keeping verbatim: "any time I need silent install
-  strings for installations I try -? or -help first to see if the
-  installer provides any, then curse the packager and start hunting repo/
-  home page docs to see if they provide any" - i.e. this is about making
-  our own installers the kind that don't provoke that reaction. NSIS can
-  do this via $CMDLINE/GetOptions plus a MessageBox for a recognized flag;
-  msiexec already shows its own (generic, not package-specific) help for
-  the .msi side today, unprompted, so this is a winexe-only gap. Wanted,
-  not critical.
-
 Maybe later considerations, defer for now, lower value
   - maybe some day i18n language support
+  - maybe some day a macOS .dmg target, alongside .pkg (not instead of -
+    Allan's fine with .pkg either way, this is a "someday maybe, maybe
+    never" thought, not a real ask). Worth noting if it ever comes up:
+    a .dmg is a different distribution model entirely, not a script-driven
+    installer like .pkg - just a mounted disk image with the .app bundle
+    and an /Applications symlink, drag-to-install, no pkgbuild/postinstall
+    scripts involved at all (hdiutil create is the whole mechanism), so it
+    could actually be a lighter lift than .pkg was, not a harder one
+
+Version 0.3.0 - September 12, 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- Payload tab: every cell is now directly editable in place - type into
+  Source/Dest/OS filter or toggle Recursive right in the table, no dialog
+  round-trip needed for a quick tweak. Add File/Add Folder/Edit.../Remove
+  still go through a dialog (adding a row or Browse-picking a path both
+  need one). widget.Table recycles a fixed pool of cell objects across
+  every row as the user scrolls, so this needed care to avoid a real class
+  of bug: each cell's OnChanged is reset before repopulating it for a
+  (possibly different) row, so a recycled cell can never fire a stale
+  callback bound to whatever row it used to represent - covered by a
+  dedicated regression test
+- Identity tab: the Linux (.png) icon field now shows a small live
+  thumbnail next to it, updating as you type a path or use Browse. No
+  preview for .ico/.icns - Go has no standard decoder for either format,
+  and this project would rather stay lean than pull in a third-party
+  dependency per format for a small benefit
+- New install-experience options (Windows only for now), a new
+  InstallExperience project section with two toggles on the Identity
+  tab's Windows section:
+  - Launch after install - a real, checked-by-default "Launch <App> now"
+    checkbox on both Setup.exe's and .msi's finish page. The end user
+    still makes the actual call at install time; the author only opts the
+    feature in. NSIS gets this via MUI_FINISHPAGE_RUN; wixl via a
+    CustomAction (FileKey+ExeCommand) wired to WixUI_Minimal's ExitDialog
+    - verified empirically against a real compiled .msi's CustomAction/
+    ControlEvent tables, since an old code comment claiming wixl doesn't
+    support EXE-based CustomActions turned out to be wrong (now corrected
+    - same story as the macpkg Info.plist assumption earlier this
+    version). Opting this in without a real license set still pulls in
+    WixUI_Minimal's Welcome/EULA page (a placeholder license is written
+    automatically) - the two are one bundled stock UI in wixl's shipped
+    extension, not separable
+  - Desktop shortcut - unlike Launch after install, this is an
+    author-time-only choice, not an end-user one: wixl's bundled UI
+    extension only ships WixUI_Minimal, not the fuller WixUI_FeatureTree/
+    Mondo variants a real interactive "create a desktop icon?" checkbox
+    would need, so building that would mean hand-authoring a custom MSI
+    dialog - out of proportion for this. Both Setup.exe and .msi also now
+    always create a Start Menu shortcut unconditionally (winexe had none
+    at all before this)
+  - Both are no-ops on macpkg/debrpm, which log a clear progress note
+    explaining why rather than silently ignoring either setting - no
+    installer-time "launch it now" convention exists on macOS/Linux, and
+    auto-launching a GUI app from a postinstall script could break a
+    headless/CI install; macOS has no "desktop icon" concept distinct
+    from /Applications, and real Linux .desktop-file generation remains
+    its own separate, bigger, already-tracked future item
+- Fixed the Launch-after-install checkbox on .msi appearing unchecked
+  despite being documented as checked-by-default - found in real Windows
+  testing the same day it shipped. Root cause: only
+  WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT (the checkbox's label) was ever
+  set; the separate property that actually drives its checked state,
+  WIXUI_EXITDIALOGOPTIONALCHECKBOX, was never set to 1. Easy to conflate
+  the two - fixed and verified against a real compiled .msi's Property
+  table
+- New Validate check: Windows.ExeName must match the filename of every
+  registered "windows" binary - also found via real Windows testing, this
+  time on winexe: Setup.exe offered to launch (checked by default, working
+  as intended there), but silently did nothing on Finish. Root cause was a
+  project config mistake, not a code bug: exe_name was set to the
+  installer's own output filename (e.g. "AppSetup.exe") rather than the
+  actual app binary's filename that NSIS/MSI install unchanged - an easy
+  mix-up given how similar the two names look. The same wrong value also
+  silently breaks the uninstaller's taskkill and every Start Menu/Desktop
+  shortcut on both backends, not just launch-after-install, so this is
+  now caught at validate/build time with a clear message instead of
+  silently doing nothing at install time
+- Setup.exe now answers -?/-help/-h/--help/(and Windows-native /?//help):
+  prints a usage message (the /S silent switch, /D=<path>, and whether a
+  license page will show) and exits, instead of silently launching the
+  normal wizard the way any other unrecognized NSIS installer argument
+  would. Allan's own stated motivation, worth keeping verbatim: "any time
+  I need silent install strings for installations I try -? or -help
+  first... then curse the packager and start hunting repo/home page
+  docs" - msiexec already answers /? unprompted on the .msi side, this
+  closes the same gap on the winexe side
+- Setup.exe now registers with Windows' "Apps & Features"/Programs and
+  Features - found in real Windows testing: unlike a real .msi (always
+  tracked by the Windows Installer service itself), NSIS never does this
+  on its own, so Setup.exe silently never showed up there, nor in
+  Get-Package, regardless of any InstallExperience setting. Every
+  properly-built NSIS installer has to write the standard Uninstall
+  registry keys by hand (DisplayName, DisplayVersion, Publisher,
+  UninstallString, DisplayIcon, InstallLocation, EstimatedSize, NoModify/
+  NoRepair), removed again on uninstall - unconditional, not gated behind
+  any toggle
+- .msi now shows a real icon in "Apps & Features"/Programs and Features
+  (via ARPPRODUCTICON) when Icons.ICO is set, instead of Windows' generic
+  default - also found in real Windows testing. Confirmed wixl supports
+  this by compiling a real test .msi and checking its Icon/Property
+  tables came out correct before wiring it in for real
+- Desktop shortcut is now a real, checked-by-default end-user checkbox on
+  Setup.exe (a Components page + a separate optional Section, with the
+  main Section marked SectionIn RO so it can't be unchecked) - Allan asked
+  for this after testing, explicitly fine with leaving it author-only if
+  not feasible. It's genuinely doable on winexe/NSIS; .msi/wixl still
+  can't (no fuller WixUI_FeatureTree/Mondo-style dialog available), so
+  Desktop shortcut is now a deliberate asymmetry between the two Windows
+  backends rather than a shared toggle: a real end-user choice on
+  Setup.exe, an author-time-only one on .msi
+- New Release Notes viewer, in the app itself: Help menu and tray both gained
+  a "Release Notes" item that opens a real window rendering the installed
+  ReleaseNotes.md/.txt (also checking the all-lowercase releasenotes.md/.txt
+  spellings, since Linux's filesystem is case-sensitive) beside the running
+  executable's own directory - the same place every backend already installs
+  it as a Payload entry. Deliberately reads from disk at runtime rather than
+  embedding the text into the binary at compile time: Allan's own call, since
+  a real project's release notes can grow large over its life (one of his
+  other projects is already close to 400KB) and an embed would bake that size
+  into every build permanently, whether or not the window's ever opened.
+  Rendered through Fyne's own built-in widget.NewRichTextFromMarkdown - no
+  new dependency - so a project that writes real Markdown (headers, bold,
+  lists, links) gets it rendered properly, while a plain ReleaseNotes.txt
+  (today's convention, and what every existing project config here still
+  ships) still reads fine as plain paragraphs. A standalone/portable binary
+  copied without its accompanying files is treated as a real, expected case,
+  not a bug: the window reports "Release Notes could not be found" with a
+  link to the project's GitHub page, rather than silently showing nothing or
+  shelling out to the OS's default text viewer/editor (deliberately avoided -
+  Allan's own words, "I just find that really ugly")
+- Fixed the Release Notes viewer freezing the whole app (a spinning-wait-
+  cursor on macOS) for several seconds when opened on a project with a large
+  release notes file - found via real testing on a different project whose
+  ReleaseNotes.md is already close to 400KB. Root cause: reading the file and
+  building the Markdown widget both ran synchronously before the window ever
+  appeared, blocking the main goroutine the whole time. Fixed by opening the
+  window immediately with a small loading indicator, doing the read/parse in
+  a background goroutine, and swapping the real content in via fyne.Do once
+  ready - the window is responsive right away, and text appears as soon as
+  it's ready rather than after a multi-second freeze. Imperceptible on most
+  projects' much smaller release notes; only matters once one grows large
+- New install-experience option: Run at startup (autostart), Windows only,
+  following the exact same real-checkbox-on-Setup.exe/author-time-only-on-
+  .msi split as Desktop shortcut (wixl's bundled UI still can't offer a real
+  Components-page choice - same limitation, same reasoning). Unlike Desktop
+  shortcut, unchecked by default on Setup.exe's Components page (a
+  NSIS `Section /o`): opting a user into launching at every login is a
+  bigger behavioral change to spring on them by surprise than an extra
+  shortcut is, so this asks explicitly rather than defaulting on. Writes/
+  removes a per-user HKCU "...\CurrentVersion\Run" value (never HKLM - only
+  ever opts in the account that ran the install, not every account on the
+  machine) on Setup.exe; on .msi it's a plain author-time registry-value
+  Component (no File, a standard WiX/MSI pattern) whose mere presence in the
+  one Feature is itself the opt-in, since there's no Components-page UI to
+  gate it behind. No-op with a clear progress note on macpkg/debrpm, same as
+  every other Windows-only InstallExperience setting.
+- New "File > New Sample Project..." menu item (also in the tray menu):
+  writes a real, fully-featured example installerbear.yaml to a location
+  you pick, then opens it as the current project - Allan's own idea, for
+  anyone who's never seen a project file before and would rather start
+  from a real working example than a blank one. Prefers this app's own
+  bundled sample (a genuine copy of the exact config that builds
+  KrankyBear InstallerBear's own installers, shipped as a Payload entry
+  next to the installed binary - see sample-installerbear.yaml); falls
+  back to an in-code generated sample (a plain packproject.Project value,
+  not a hand-written YAML string, so a future schema/field rename can't
+  silently leave it stale) when the bundled file isn't found, e.g. running
+  via `go run .` before packaging, or a portable build without its Payload
+  files attached. The generated fallback mints a fresh Windows UpgradeGUID
+  on every call rather than a fixed placeholder, so saving several sample
+  projects in a row never leaves them with colliding UpgradeCodes.
+- This project's own ReleaseNotes.txt is retired - Allan switched to
+  ReleaseNotes.md ("much nicer to read"), which the in-app Release Notes
+  viewer above already preferred first anyway. The "New Project" smart-scan
+  (projectscan) now also checks .md before .txt when prefilling from an
+  existing folder's release notes, matching the new convention; .txt-based
+  projects are still found just as well, only the preference order changed.
 
 Version 0.2.0 - September 11, 2026
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

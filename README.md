@@ -21,12 +21,39 @@ fixing and performance work.
   the window title reflecting the project name and unsaved-changes state.
 - Open is lenient (a work-in-progress project can be reopened even if incomplete);
   Save-before-build always validates first.
+- **New Sample Project...** (File menu + tray) writes a real, fully-featured
+  example `installerbear.yaml` to a location you pick and opens it — a
+  working starting point for anyone who'd rather adapt a real config than
+  fill in a blank one. Prefers this app's own bundled sample (a genuine
+  copy of the exact config used to build KrankyBear InstallerBear's own
+  installers); falls back to a generated example (with a freshly minted
+  Windows UpgradeGUID) if that bundled file isn't present, e.g. running
+  from source.
 
 ### Identity tab
 
 - Name, bundle ID, version, publisher, vendor, URL, description, license file.
-- Icons (`.ico` / `.icns` / `.png`).
-- Windows: Upgrade GUID (with a **Generate GUID** button) and exe name.
+- Icons (`.ico` / `.icns` / `.png`), with a small live thumbnail next to the
+  `.png` field (typing a path or using Browse both update it). `.ico`/`.icns`
+  have no preview — Go has no standard decoder for either format, and this
+  project would rather stay lean than add a dependency per format for a
+  small benefit.
+- Windows: Upgrade GUID (with a **Generate GUID** button), exe name, and
+  three install-experience toggles — **Launch after install** (a real,
+  checked-by-default "Launch \<App\> now" checkbox on both `Setup.exe`'s and
+  `.msi`'s finish page, opted into here by the project author; the actual
+  choice at install time is the end user's), **Desktop shortcut** (both
+  installers already create a Start Menu shortcut unconditionally; this
+  adds a second one on the Desktop — a real, checked-by-default Components-
+  page checkbox on `Setup.exe`, but an author-time-only choice on `.msi`,
+  since `wixl`'s bundled UI has no equivalent interactive mechanism), and
+  **Run at startup (autostart)** (writes/removes a per-user `HKCU` Run
+  value — same real-checkbox-on-`Setup.exe`/author-time-only-on-`.msi`
+  split as Desktop shortcut, but *unchecked* by default even on
+  `Setup.exe`'s Components page, since autostarting is a bigger surprise to
+  spring on someone than an extra shortcut). All three toggles are
+  Windows-only: macOS/Linux backends log a clear note rather than silently
+  ignoring any of them.
 - macOS: bundle executable, minimum OS version, category.
 - Linux: desktop categories and comment.
 - Output directory and filename template.
@@ -45,7 +72,11 @@ fixing and performance work.
 - Table of extra files/folders to bundle alongside the binary (source, destination,
   recursive copy, OS filter) — the GUI equivalent of Inno's `[Files]` section or
   `fpm`'s `src=dest` arguments.
-- Add File / Add Folder / Edit / Remove via a dialog.
+- Every cell is directly editable in place — type into Source/Dest/OS filter
+  or toggle Recursive right in the table, no dialog round-trip needed for a
+  quick tweak. Add File / Add Folder / Edit... (Browse-assisted) / Remove
+  still go through a dialog, since adding a row or picking a new path via a
+  file/folder browser both need one.
 
 ### Build tab
 
@@ -61,11 +92,27 @@ fixing and performance work.
 
 - **Windows `Setup.exe`** — NSIS via `makensis` (buildable from any host OS):
   app metadata, optional license page, binary + payload copy, registry
-  install-dir marker, uninstaller that stops the running exe first.
+  install-dir marker, an unconditional Start Menu shortcut (plus, when
+  opted in, real Components-page checkboxes letting the person installing
+  choose a Desktop shortcut and/or Run-at-startup too — the latter
+  unchecked by default — and/or an optional "launch it now" finish-page
+  checkbox — see Install Experience below), a real "Apps &
+  Features"/Programs and Features registration (NSIS doesn't do this on
+  its own the way MSI always does — every properly-built installer writes
+  it by hand), an uninstaller that stops the running exe first, and
+  `-?`/`-help`/`-h`/`--help`/`/?`/`/help` support — prints a usage message
+  (the `/S` silent switch, `/D=`) and exits instead of silently launching
+  the wizard like an unhandled installer argument normally would.
 - **Windows `.msi`** — a real MSI via `wixl` (GNOME msitools): stable
   UpgradeCode with a per-build ProductCode, binary + payload tree, Start Menu
-  shortcut, and (when a license file is set) a full Welcome/License/Progress
-  wizard via wixl's bundled WixUI_Minimal-equivalent extension, gated by an
+  shortcut (plus the same optional launch-after-install checkbox as
+  `Setup.exe` — Desktop shortcut and Run-at-startup both stay author-time-only
+  choices here, since `wixl`'s bundled UI has no equivalent Components-page
+  mechanism), a proper icon in "Apps & Features"/Programs and
+  Features when `Icons.ICO` is set (via `ARPPRODUCTICON`), and (when a
+  license file is set, or Launch-after-install is on) a full
+  Welcome/License/Progress wizard via wixl's bundled WixUI_Minimal-equivalent
+  extension, gated by an
   `ACCEPTEULA=1` launch condition for silent/unattended installs.
 - **macOS `.pkg`** — assembles a genuine `.app` bundle (`.icns`, CLI
   symlink) then calls Apple's `pkgbuild` in `--root` mode (not
@@ -125,10 +172,21 @@ installerbear -help   # or -?
 ### General application features
 
 - System tray and main menu mirror each other: New/Open/Save/Save As,
-  Show/Hide All Windows, Light/Dark/System theme, Help/Check for
-  Updates/About, Quit. The tray icon also has a hover tooltip.
+  Show/Hide All Windows, Light/Dark/System theme, Help/Release Notes/Check
+  for Updates/About, Quit. The tray icon also has a hover tooltip.
 - "Show/Hide All Windows" (tray and main View menu) shows or hides the main
-  window plus any open About/Help/Update window together in one click.
+  window plus any open About/Help/Update/Release Notes window together in
+  one click.
+- Release Notes viewer: opens the installed `ReleaseNotes.md`/`.txt` (checked
+  in that order) from beside the running executable, rendered through Fyne's
+  built-in Markdown support — no new dependency, and a plain `.txt` still
+  reads fine as plain paragraphs. Reads from disk at runtime rather than
+  embedding, since release notes can grow large over a project's life and an
+  embed would bake that size into every build permanently. If no release
+  notes file is found beside the executable (e.g. a standalone binary copied
+  without it), the window says so plainly with a link to the project's
+  GitHub page, rather than silently showing nothing or shelling out to the
+  OS's default text viewer.
 - Light/Dark/System theme, remembered across launches.
 - Update checker: a quiet automatic check once per day on launch, plus an
   unthrottled manual "Check for Updates", with a HardHat badge on About/Update
@@ -141,8 +199,6 @@ installerbear -help   # or -?
 - No code signing for any output (NSIS, MSI, `.pkg`, `.deb`/`.rpm` are all
   produced unsigned).
 - No file associations or custom installer wizard pages.
-- No unsaved-changes confirmation on New/Open Project yet.
-- Payload entries are edited via a dialog, not inline in the table.
 - "Show/Hide All Windows" doesn't remember exactly which secondary windows
   were open — it can re-show one you'd already closed earlier in the session.
 

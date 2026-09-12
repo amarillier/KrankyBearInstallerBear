@@ -2,6 +2,7 @@ package main
 
 import (
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -35,16 +36,18 @@ type editor struct {
 	build buildstate.State
 
 	// Identity tab
-	nameEntry, idEntry, versionEntry        *widget.Entry
-	publisherEntry, vendorEntry             *widget.Entry
-	urlEntry, descEntry                     *widget.Entry
-	licenseNameEntry, licenseEntry          *widget.Entry
-	icoEntry, icnsEntry, pngEntry           *widget.Entry
-	guidEntry, exeNameEntry                 *widget.Entry
-	macExecEntry, macMinOSEntry             *widget.Entry
-	macCategoryEntry                        *widget.Entry
-	linuxCategoriesEntry, linuxCommentEntry *widget.Entry
-	outputDirEntry                          *widget.Entry
+	nameEntry, idEntry, versionEntry                                     *widget.Entry
+	publisherEntry, vendorEntry                                          *widget.Entry
+	urlEntry, descEntry                                                  *widget.Entry
+	licenseNameEntry, licenseEntry                                       *widget.Entry
+	icoEntry, icnsEntry, pngEntry                                        *widget.Entry
+	pngIconThumbnail                                                     *canvas.Image
+	guidEntry, exeNameEntry                                              *widget.Entry
+	launchAfterInstallCheck, desktopShortcutCheck, autostartAtLoginCheck *widget.Check
+	macExecEntry, macMinOSEntry                                          *widget.Entry
+	macCategoryEntry                                                     *widget.Entry
+	linuxCategoriesEntry, linuxCommentEntry                              *widget.Entry
+	outputDirEntry                                                       *widget.Entry
 
 	// Binaries tab — one field per (OS, arch) pair; see binariesform.go.
 	binaryFields []binaryField

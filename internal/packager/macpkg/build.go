@@ -68,6 +68,15 @@ func (p macpkgPackager) Build(ctx context.Context, proj *packproject.Project, op
 	if proj.Hooks.PostUninstall != "" {
 		p.emit(progress, "note: post_uninstall hook has no effect for macpkg - a .pkg install has no OS-level uninstall action to hook into")
 	}
+	if proj.InstallExperience.LaunchAfterInstall {
+		p.emit(progress, "note: install_experience.launch_after_install has no effect for macpkg - no installer-time \"launch it now\" convention exists on macOS, and auto-launching a GUI app from a postinstall script could break a headless install")
+	}
+	if proj.InstallExperience.DesktopShortcut {
+		p.emit(progress, "note: install_experience.desktop_shortcut has no effect for macpkg - macOS has no \"desktop icon\" concept distinct from /Applications")
+	}
+	if proj.InstallExperience.AutostartAtLogin {
+		p.emit(progress, "note: install_experience.autostart_at_login has no effect for macpkg yet - Windows-only for now (a real equivalent exists on macOS via a LaunchAgent plist, tracked separately if this comes up)")
+	}
 
 	outDir := proj.Output.Dir
 	if opts.OutputDir != "" {

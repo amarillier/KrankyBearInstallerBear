@@ -96,7 +96,7 @@ func showUpdateDialog(a fyne.App, message string, updateAvailable bool, ahead bo
 		releaseLink := widget.NewHyperlink("Download Latest Release", releaseURL)
 		releaseLink.Alignment = fyne.TextAlignCenter
 
-		notesURL, _ := url.Parse("https://github.com/amarillier/KrankyBearInstallerBear/blob/main/ReleaseNotes.txt")
+		notesURL, _ := url.Parse("https://github.com/amarillier/KrankyBearInstallerBear/blob/main/ReleaseNotes.md")
 		notesLink := widget.NewHyperlink("View Release Notes", notesURL)
 		notesLink.Alignment = fyne.TextAlignCenter
 

@@ -38,6 +38,38 @@ func TestValidate_UnknownTarget(t *testing.T) {
 	}
 }
 
+// TestValidate_WindowsExeNameMustMatchBinaryFilename is a regression test
+// for a real, silent bug found via hands-on Windows testing: exe_name set
+// to the installer's own output filename (e.g. "AppSetup.exe") instead of
+// the actual binary's filename, which NSIS/MSI install unchanged. Nothing
+// errors at build time - it just silently breaks the uninstaller's
+// taskkill, every shortcut, and launch-after-install (the exact symptom
+// that surfaced this: the "launch now" checkbox did nothing, no error).
+func TestValidate_WindowsExeNameMustMatchBinaryFilename(t *testing.T) {
+	p := validProject()
+	p.Targets = []string{TargetWinExe}
+	p.Windows.UpgradeGUID = "{4578B785-DB27-44FF-B3F9-2713B327BB90}"
+	p.Binaries = []BinaryEntry{{OS: "windows", Arch: "amd64", Path: "bin/TestApp.exe"}}
+	p.Windows.ExeName = "TestAppSetup.exe" // mismatch: the real binary is TestApp.exe
+
+	err := p.Validate("")
+	if err == nil || !strings.Contains(err.Error(), `exe_name "TestAppSetup.exe" does not match`) {
+		t.Fatalf("expected an exe_name mismatch error, got %v", err)
+	}
+}
+
+func TestValidate_WindowsExeNameMatchingBinaryIsFine(t *testing.T) {
+	p := validProject()
+	p.Targets = []string{TargetWinExe}
+	p.Windows.UpgradeGUID = "{4578B785-DB27-44FF-B3F9-2713B327BB90}"
+	p.Binaries = []BinaryEntry{{OS: "windows", Arch: "amd64", Path: "bin/TestApp.exe"}}
+	p.Windows.ExeName = "TestApp.exe"
+
+	if err := p.Validate(""); err != nil {
+		t.Fatalf("expected no error when exe_name matches the binary's filename: %v", err)
+	}
+}
+
 func TestValidate_WindowsGUIDRequiredOnlyForWindowsTargets(t *testing.T) {
 	p := validProject() // deb/rpm only, no GUID
 	if err := p.Validate(""); err != nil {

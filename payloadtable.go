@@ -2,7 +2,6 @@ package main
 
 import (
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"fyne.io/fyne/v2"
@@ -16,45 +15,22 @@ import (
 
 const payloadColCount = 4 // Source | Dest | Recursive | OS filter
 
-// buildPayloadTab shows Project.Payload read-only in a table — editing goes
-// through the add/edit dialog below rather than inline-editable cells,
-// which would need a lot more Fyne plumbing for not much benefit at this
-// tool's "basics" scope. This is the GUI analogue of today's Inno [Files]
-// section / fpm src=dest arguments.
+// buildPayloadTab shows Project.Payload in a table with every cell directly
+// editable in place — the Add/Edit dialog below still exists for Browse-
+// assisted Source/Dest picking on a new or existing entry, but a quick Dest
+// or OS-filter tweak no longer needs it. This is the GUI analogue of
+// today's Inno [Files] section / fpm src=dest arguments.
 //
 // Uses Fyne's native ShowHeaderRow/CreateHeader/UpdateHeader (rather than
 // faking a bold row 0 in the data grid, this table's original approach) so
 // dragging a header column boundary resizes that column for free — that's
 // a built-in Table behavior gated entirely on ShowHeaderRow being set, see
-// widget.Table's own Dragged/DragEnd. Long cell values ellipsize instead of
-// overflowing into the next column via Label.Truncation.
+// widget.Table's own Dragged/DragEnd.
 func (e *editor) buildPayloadTab() fyne.CanvasObject {
-	newCell := func() fyne.CanvasObject {
-		l := widget.NewLabel("")
-		l.Truncation = fyne.TextTruncateEllipsis
-		return l
-	}
 	e.payloadTable = widget.NewTable(
 		func() (int, int) { return len(e.proj.Payload), payloadColCount },
-		newCell,
-		func(id widget.TableCellID, obj fyne.CanvasObject) {
-			label := obj.(*widget.Label)
-			entry := e.proj.Payload[id.Row]
-			switch id.Col {
-			case 0:
-				label.SetText(entry.Source)
-			case 1:
-				label.SetText(entry.Dest)
-			case 2:
-				label.SetText(strconv.FormatBool(entry.Recursive))
-			case 3:
-				if len(entry.OS) == 0 {
-					label.SetText("all")
-				} else {
-					label.SetText(strings.Join(entry.OS, ", "))
-				}
-			}
-		},
+		newPayloadCell,
+		e.updatePayloadCell,
 	)
 	e.payloadTable.ShowHeaderRow = true
 	e.payloadTable.CreateHeader = func() fyne.CanvasObject {
@@ -99,6 +75,70 @@ func (e *editor) buildPayloadTab() fyne.CanvasObject {
 // track it into e.lastSelectedPayloadRow as selection changes.
 func (e *editor) selectedPayloadRow() int {
 	return e.lastSelectedPayloadRow
+}
+
+// newPayloadCell builds one recyclable table cell. widget.Table reuses a
+// fixed pool of CanvasObjects across every row and column as the user
+// scrolls (see widget.Table's own CreateCell/UpdateCell docs), so a single
+// cell object must be able to represent any of this table's columns — an
+// Entry for the three free-text columns (Source/Dest/OS) or a Check for
+// the boolean Recursive column. Both live in the same stacked container;
+// updatePayloadCell shows whichever one the current column needs and hides
+// the other.
+func newPayloadCell() fyne.CanvasObject {
+	return container.NewStack(widget.NewEntry(), widget.NewCheck("", nil))
+}
+
+// updatePayloadCell binds one recycled cell (see newPayloadCell) to
+// e.proj.Payload[id.Row]'s field for id.Col, editable in place: typing in
+// an Entry or toggling the Check writes straight back into e.proj.Payload,
+// no Save/dialog step needed. OnChanged is cleared before SetText/
+// SetChecked and reassigned after so re-populating a recycled cell for a
+// (possibly different) row during scrolling never fires a stale callback
+// bound to whatever row the object last represented.
+func (e *editor) updatePayloadCell(id widget.TableCellID, obj fyne.CanvasObject) {
+	stack := obj.(*fyne.Container)
+	entry := stack.Objects[0].(*widget.Entry)
+	check := stack.Objects[1].(*widget.Check)
+	entry.OnChanged = nil
+	check.OnChanged = nil
+	entry.Hide()
+	check.Hide()
+
+	row := id.Row
+	switch id.Col {
+	case 0:
+		entry.SetText(e.proj.Payload[row].Source)
+		entry.OnChanged = func(v string) { e.proj.Payload[row].Source = v }
+		entry.Show()
+	case 1:
+		entry.SetText(e.proj.Payload[row].Dest)
+		entry.OnChanged = func(v string) { e.proj.Payload[row].Dest = v }
+		entry.Show()
+	case 2:
+		check.SetChecked(e.proj.Payload[row].Recursive)
+		check.OnChanged = func(v bool) { e.proj.Payload[row].Recursive = v }
+		check.Show()
+	case 3:
+		entry.SetText(strings.Join(e.proj.Payload[row].OS, ","))
+		entry.OnChanged = func(v string) { e.proj.Payload[row].OS = parseOSFilter(v) }
+		entry.Show()
+	}
+}
+
+// parseOSFilter splits the OS-filter column/field's comma-separated text
+// into Payload.OS, trimming whitespace and dropping empty parts — shared by
+// the inline table cell above and showPayloadDialog below so the two never
+// drift into parsing this differently. A blank filter means "all OSes",
+// i.e. nil, not a slice containing "".
+func parseOSFilter(text string) []string {
+	var os []string
+	for _, part := range strings.Split(text, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			os = append(os, part)
+		}
+	}
+	return os
 }
 
 // showPayloadDialog opens a small add/edit form for one PayloadEntry. row
@@ -188,13 +228,7 @@ func (e *editor) showPayloadDialog(row int, isDir bool) {
 			Source:    sourceEntry.Text,
 			Dest:      dest,
 			Recursive: recursiveCheck.Checked,
-		}
-		if osFilter := strings.TrimSpace(osEntry.Text); osFilter != "" {
-			for _, part := range strings.Split(osFilter, ",") {
-				if part = strings.TrimSpace(part); part != "" {
-					entry.OS = append(entry.OS, part)
-				}
-			}
+			OS:        parseOSFilter(osEntry.Text),
 		}
 		if row >= 0 {
 			e.proj.Payload[row] = entry

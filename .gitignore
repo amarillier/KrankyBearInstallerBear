@@ -50,4 +50,6 @@ mesa-staging/
 !Inno/*/
 !winres/*
 !get-mesa.sh
+!sample-installerbear.yaml
+!installerbear.yaml
 */.DS_Store

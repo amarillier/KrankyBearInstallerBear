@@ -74,13 +74,16 @@ func (p winexePackager) Build(ctx context.Context, proj *packproject.Project, op
 	}
 
 	data := nsiData{
-		AppName:      proj.Identity.Name,
-		AppVersion:   proj.Identity.Version,
-		Publisher:    proj.Identity.Publisher,
-		ExeName:      proj.Windows.ExeName,
-		OutFile:      outPath,
-		InstallDir:   proj.Install.Windows,
-		BinarySource: proj.ResolvePath(bin.Path),
+		AppName:            proj.Identity.Name,
+		AppVersion:         proj.Identity.Version,
+		Publisher:          proj.Identity.Publisher,
+		ExeName:            proj.Windows.ExeName,
+		OutFile:            outPath,
+		InstallDir:         proj.Install.Windows,
+		BinarySource:       proj.ResolvePath(bin.Path),
+		LaunchAfterInstall: proj.InstallExperience.LaunchAfterInstall,
+		DesktopShortcut:    proj.InstallExperience.DesktopShortcut,
+		AutostartAtLogin:   proj.InstallExperience.AutostartAtLogin,
 	}
 	if proj.Identity.Icons.ICO != "" {
 		data.IconFile = proj.ResolvePath(proj.Identity.Icons.ICO)

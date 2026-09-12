@@ -10,16 +10,23 @@ import (
 
 // releaseNotesNames is the fixed priority order used when looking for a
 // ReleaseNotes file, mirroring findLicenseFile's case-insensitive approach —
-// first match wins.
-var releaseNotesNames = []string{"ReleaseNotes.txt", "ReleaseNotes.md", "RELEASENOTES.txt"}
+// first match wins. .md first, matching this project's own convention as of
+// 2026-09-12 (its own ReleaseNotes.txt was retired in favor of
+// ReleaseNotes.md — nicer to read, per Allan's own call) and the same
+// priority the in-app Release Notes viewer itself uses (see
+// releaseNotesFileNames in ../../releasenotes.go). A scanned project on the
+// older .txt convention is still found just as well; only the preference
+// order changed.
+var releaseNotesNames = []string{"ReleaseNotes.md", "ReleaseNotes.txt", "RELEASENOTES.md", "RELEASENOTES.txt"}
 
 // versionLineRE matches this template's "Version X.Y.Z - <date>" heading
-// (see ReleaseNotes.txt itself) and captures just the version token.
+// (see ReleaseNotes.md itself) and captures just the version token.
 var versionLineRE = regexp.MustCompile(`(?i)^Version\s+(\S+)`)
 
 // parseReleaseNotes best-effort-extracts an app Name, current Version, and
 // Description from a ReleaseNotes file in dir's root, following this
-// template's own ReleaseNotes.txt convention:
+// template's own ReleaseNotes.md/.txt convention (plain line-based text
+// either way - this parser doesn't care about real Markdown syntax):
 //
 //	Release notes
 //	<Name>: <description, possibly wrapped across a couple of lines>

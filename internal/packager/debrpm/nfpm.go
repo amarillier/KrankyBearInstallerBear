@@ -66,6 +66,18 @@ func (f format) Build(ctx context.Context, proj *packproject.Project, opts packa
 		return "", fmt.Errorf("%s: no linux/%s binary registered in project.binaries", f.name, arch)
 	}
 
+	if progress != nil {
+		if proj.InstallExperience.LaunchAfterInstall {
+			progress(f.name, "note: install_experience.launch_after_install has no effect for "+string(f.name)+" - no installer-time \"launch it now\" convention exists on Linux, and auto-launching a GUI app from a postinstall script could break a headless/CI install")
+		}
+		if proj.InstallExperience.DesktopShortcut {
+			progress(f.name, "note: install_experience.desktop_shortcut has no effect for "+string(f.name)+" yet - real Linux .desktop-file generation is tracked separately, a bigger feature of its own")
+		}
+		if proj.InstallExperience.AutostartAtLogin {
+			progress(f.name, "note: install_experience.autostart_at_login has no effect for "+string(f.name)+" yet - Windows-only for now (a real equivalent exists via an XDG autostart .desktop entry, tracked separately if this comes up)")
+		}
+	}
+
 	info, cleanup, err := buildInfo(proj, arch, bin)
 	if err != nil {
 		return "", err

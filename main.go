@@ -17,7 +17,7 @@ import (
 
 const (
 	// appName    = "KrankyBear InstallerBear"
-	appVersion = "0.2.0" // see FyneApp.toml
+	appVersion = "0.3.0" // see FyneApp.toml
 	appAuthor  = "Allan Marillier"
 	appID      = "com.github.amarillier.KrankyBearInstallerBear"
 )
@@ -166,6 +166,7 @@ func quitApp(a fyne.App, win fyne.Window) {
 func buildMenu(a fyne.App, win fyne.Window) *fyne.MainMenu {
 	fileMenu := fyne.NewMenu("File",
 		fyne.NewMenuItem("New Project", func() { mainEditor.newProject() }),
+		fyne.NewMenuItem("New Sample Project...", func() { mainEditor.newSampleProject() }),
 		fyne.NewMenuItem("Open Project...", func() { mainEditor.openProject() }),
 		fyne.NewMenuItem("Save Project", func() { mainEditor.saveProject() }),
 		fyne.NewMenuItem("Save Project As...", func() { mainEditor.saveProjectAs() }),
@@ -184,6 +185,7 @@ func buildMenu(a fyne.App, win fyne.Window) *fyne.MainMenu {
 	)
 	helpMenu := fyne.NewMenu("Help",
 		fyne.NewMenuItem("Help", func() { showHelp(a) }),
+		fyne.NewMenuItem("Release Notes", func() { showReleaseNotes(a) }),
 		fyne.NewMenuItem("Check for Updates", func() { checkForUpdatesManual(a) }),
 		fyne.NewMenuItem("About", func() { showAbout(a) }),
 	)
@@ -232,6 +234,7 @@ func setupSystemTray(a fyne.App, win fyne.Window) {
 		fyne.NewMenuItem("Hide All Windows", func() { fyne.Do(func() { hideAllAppWindows(a) }) }),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("New Project", func() { fyne.Do(func() { mainEditor.newProject() }) }),
+		fyne.NewMenuItem("New Sample Project...", func() { fyne.Do(func() { mainEditor.newSampleProject() }) }),
 		fyne.NewMenuItem("Open Project...", func() { fyne.Do(func() { mainEditor.openProject() }) }),
 		fyne.NewMenuItem("Save Project", func() { fyne.Do(func() { mainEditor.saveProject() }) }),
 		fyne.NewMenuItem("Save Project As...", func() { fyne.Do(func() { mainEditor.saveProjectAs() }) }),
@@ -243,6 +246,7 @@ func setupSystemTray(a fyne.App, win fyne.Window) {
 		fyne.NewMenuItem("System Theme", func() { fyne.Do(func() { setSystemTheme(a) }) }),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Help", func() { fyne.Do(func() { showHelp(a) }) }),
+		fyne.NewMenuItem("Release Notes", func() { fyne.Do(func() { showReleaseNotes(a) }) }),
 		fyne.NewMenuItem("Check for Updates", func() { checkForUpdatesManual(a) }),
 		fyne.NewMenuItem("About", func() { fyne.Do(func() { showAbout(a) }) }),
 		fyne.NewMenuItemSeparator(),

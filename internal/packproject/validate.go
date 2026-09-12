@@ -47,6 +47,43 @@ func (p *Project) Validate(baseDir string) error {
 		errs = append(errs, err)
 	}
 
+	if err := validateWindowsExeName(p); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// validateWindowsExeName catches a real, silent bug found via hands-on
+// Windows testing: Windows.ExeName was set to the installer's own output
+// filename (e.g. "AppSetup.exe") instead of the actual app binary's
+// filename ("App.exe") - an easy mix-up given how similar the two names
+// look. NSIS/MSI's File directive installs a binary under its own source
+// basename (no rename), so ExeName must match that exactly: it drives the
+// uninstaller's taskkill (silently fails to find the real running
+// process otherwise), every Start Menu/Desktop shortcut target on both
+// backends, and NSIS's MUI_FINISHPAGE_RUN launch-after-install action
+// (which just silently does nothing if the path it builds doesn't exist -
+// no error, no crash, the exact symptom that surfaced this). Checked
+// against every registered "windows" binary, not just one arch.
+func validateWindowsExeName(p *Project) error {
+	if p.Windows.ExeName == "" {
+		return nil
+	}
+	var errs []error
+	for _, b := range p.Binaries {
+		if b.OS != "windows" {
+			continue
+		}
+		if base := filepath.Base(b.Path); base != p.Windows.ExeName {
+			errs = append(errs, fmt.Errorf(
+				"windows.exe_name %q does not match the windows/%s binary's own filename %q - "+
+					"it must be the actual app binary's filename (NSIS/MSI install it under that name unchanged), "+
+					"not the installer's own output filename; a mismatch silently breaks the uninstaller's taskkill, "+
+					"every Start Menu/Desktop shortcut, and launch-after-install",
+				p.Windows.ExeName, b.Arch, base))
+		}
+	}
 	return errors.Join(errs...)
 }
 

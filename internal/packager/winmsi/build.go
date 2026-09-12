@@ -8,9 +8,9 @@
 // they intend to fix). wixl is a from-scratch reimplementation that
 // actually builds valid .msi files from macOS/Linux, verified against
 // msiinfo here, at the cost of only supporting a WiX v3-era XML subset
-// (no StandardDirectory sugar, no CustomAction/EXE-based custom actions —
-// see wxs_template.go's comment on why that's an acceptable trade for
-// this tool's deliberately basic scope).
+// (no StandardDirectory sugar) - see wxs_template.go's comment for the
+// full trade, and for why an earlier version of this comment's claim that
+// EXE-based CustomActions aren't supported here was wrong.
 package winmsi
 
 import (
@@ -65,7 +65,7 @@ func (p winmsiPackager) Build(ctx context.Context, proj *packproject.Project, op
 		return "", fmt.Errorf("winmsi: no windows/%s binary registered in project.binaries", arch)
 	}
 
-	root, allComponents, err := buildDirTree(proj, bin)
+	root, allComponents, binaryFileID, err := buildDirTree(proj, bin)
 	if err != nil {
 		return "", fmt.Errorf("winmsi: %w", err)
 	}
@@ -85,6 +85,19 @@ func (p winmsiPackager) Build(ctx context.Context, proj *packproject.Project, op
 		ProgramMenuDirID:    uniqueID(used, "dir_"+proj.Identity.Name),
 		ShortcutComponentID: uniqueID(used, "cmp_shortcut"),
 		ShortcutTargetName:  proj.Windows.ExeName,
+		LaunchAfterInstall:  proj.InstallExperience.LaunchAfterInstall,
+		BinaryFileID:        binaryFileID,
+		DesktopShortcut:     proj.InstallExperience.DesktopShortcut,
+		AutostartAtLogin:    proj.InstallExperience.AutostartAtLogin,
+	}
+	if data.DesktopShortcut {
+		data.DesktopShortcutComponentID = uniqueID(used, "cmp_desktop_shortcut")
+	}
+	if data.AutostartAtLogin {
+		data.AutostartComponentID = uniqueID(used, "cmp_autostart")
+	}
+	if proj.Identity.Icons.ICO != "" {
+		data.IconFile = proj.ResolvePath(proj.Identity.Icons.ICO)
 	}
 
 	stagingDir, err := os.MkdirTemp("", "packman-winmsi-*")
@@ -98,16 +111,22 @@ func (p winmsiPackager) Build(ctx context.Context, proj *packproject.Project, op
 		if err != nil {
 			return "", fmt.Errorf("winmsi: reading license file: %w", err)
 		}
-		// WelcomeEulaDlg.wxs (part of wixl's bundled "ui" extension, see
-		// below) hardcodes reading its license text from a file literally
-		// named License.rtf, resolved relative to app.wxs's own directory
-		// (confirmed empirically - not documented anywhere) - so it must
-		// live in stagingDir alongside app.wxs, under exactly this name.
-		rtfPath := filepath.Join(stagingDir, "License.rtf")
-		if err := os.WriteFile(rtfPath, []byte(licenseToRTF(string(licenseText))), 0o644); err != nil {
-			return "", fmt.Errorf("winmsi: writing License.rtf: %w", err)
+		if err := writeLicenseRTF(stagingDir, licenseToRTF(string(licenseText))); err != nil {
+			return "", fmt.Errorf("winmsi: %w", err)
 		}
 		data.HasLicense = true
+	} else if data.LaunchAfterInstall {
+		// WixUI_Minimal's Welcome/EULA page and its ExitDialog "Launch now"
+		// checkbox are one bundled stock UI, not separable (see
+		// wxs_template.go's own comment) - opting into LaunchAfterInstall
+		// without a real license still needs a License.rtf to exist at all
+		// (wixl hard-errors "Couldn't find file License.rtf" otherwise,
+		// confirmed empirically), so this is a placeholder, not real
+		// license text. data.HasLicense stays false: there's nothing real
+		// to gate the ACCEPTEULA launch condition on here.
+		if err := writeLicenseRTF(stagingDir, licenseToRTF("No license text was provided for this application.")); err != nil {
+			return "", fmt.Errorf("winmsi: %w", err)
+		}
 	}
 
 	wxsPath := filepath.Join(stagingDir, "app.wxs")
@@ -134,10 +153,10 @@ func (p winmsiPackager) Build(ctx context.Context, proj *packproject.Project, op
 	outPath := filepath.Join(outDir, fmt.Sprintf("%sSetup_%s_%s.msi", strings.ReplaceAll(proj.Identity.Name, " ", ""), proj.Identity.Version, arch))
 
 	args := []string{wxsPath, "-o", outPath, "-a", "x64"}
-	if data.HasLicense {
+	if data.HasLicense || data.LaunchAfterInstall {
 		// Pulls in wixl's bundled WixUI_Minimal-equivalent (Welcome/EULA,
 		// Progress, Exit dialogs) that <UIRef Id='WixUI_Minimal'/> in
-		// wxs_template.go references.
+		// wxs_template.go references whenever either is set.
 		args = append(args, "--ext", "ui")
 	}
 	p.emit(progress, "running wixl...")
@@ -147,6 +166,15 @@ func (p winmsiPackager) Build(ctx context.Context, proj *packproject.Project, op
 	}
 
 	return outPath, nil
+}
+
+// writeLicenseRTF writes rtf to stagingDir under exactly the name
+// WelcomeEulaDlg.wxs (part of wixl's bundled "ui" extension) hardcodes
+// reading its license text from: License.rtf, resolved relative to
+// app.wxs's own directory (confirmed empirically - not documented
+// anywhere), so it must live in stagingDir alongside app.wxs.
+func writeLicenseRTF(stagingDir, rtf string) error {
+	return os.WriteFile(filepath.Join(stagingDir, "License.rtf"), []byte(rtf), 0o644)
 }
 
 // licenseToRTF wraps plain text in the minimal valid RTF that

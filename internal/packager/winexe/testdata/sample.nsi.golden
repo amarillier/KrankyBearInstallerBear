@@ -61,6 +61,13 @@ Section "${APP_NAME}" SEC01
   ; enabled, see above) would otherwise let someone uncheck the entire app,
   ; leaving nothing installed at all.
   SectionIn RO
+  ; All-users installs default to the per-user Start Menu/Desktop shell
+  ; folders otherwise (NSIS's own default context) even though the install
+  ; itself is elevated - this redirects those shell-folder constants to
+  ; the all-users ones instead, matching ALLUSERS=1's meaning on the .msi
+  ; side. Global for the rest of this run (and the uninstaller's own run,
+  ; which sets it again below), not just this Section.
+  SetShellVarContext all
   SetOutPath "$INSTDIR"
   File "C:\src\bin\TestApp.exe"
   File "/oname=License.txt" "C:\src\LICENSE"
@@ -82,6 +89,10 @@ Section "${APP_NAME}" SEC01
   ; installed exe itself (not IconFile - that .ico only ever sets
   ; Setup.exe's own icon above, it's never copied into $INSTDIR), so
   ; Windows shows whatever icon the app binary itself was built with.
+  ; Written under HKLM: a current-user (non-elevated)
+  ; install can't write HKLM at all, so this moves to HKCU for that scope
+  ; (Windows' Programs and Features UI reads both hives) - see
+  ; packproject.WindowsOptions.InstallScope's own doc comment.
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" "DisplayName" "${APP_NAME}"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" "DisplayVersion" "${APP_VERSION}"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" "Publisher" "${APP_PUBLISHER}"
@@ -95,6 +106,7 @@ Section "${APP_NAME}" SEC01
 SectionEnd
 
 Section "Uninstall"
+  SetShellVarContext all
   ExecWait 'taskkill /IM "${APP_EXE}" /F /T'
   Delete "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk"
   RMDir "$SMPROGRAMS\${APP_NAME}"

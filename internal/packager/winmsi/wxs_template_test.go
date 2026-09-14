@@ -258,3 +258,100 @@ func TestWxsTemplate_NoARPProductIconWithoutIconFile(t *testing.T) {
 		t.Errorf("expected no ARPPRODUCTICON when IconFile is empty:\n%s", buf.String())
 	}
 }
+
+// TestWxsTemplate_AllUsersInstallScope covers the InstallScopeAllUsers
+// default explicitly (PerUser false, the zero value): ALLUSERS=1 present,
+// rooted at ProgramFiles64Folder, no LocalAppDataFolder reference at all.
+func TestWxsTemplate_AllUsersInstallScope(t *testing.T) {
+	var buf bytes.Buffer
+	if err := wxsTemplate.Execute(&buf, sampleWxsData()); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	out := buf.String()
+
+	if !bytes.Contains([]byte(out), []byte("<Property Id='ALLUSERS' Value='1'/>")) {
+		t.Errorf("expected ALLUSERS=1 for the default all-users install:\n%s", out)
+	}
+	if !bytes.Contains([]byte(out), []byte("<Directory Id='ProgramFiles64Folder'")) {
+		t.Errorf("expected a ProgramFiles64Folder root for the default all-users install:\n%s", out)
+	}
+	if bytes.Contains([]byte(out), []byte("LocalAppDataFolder")) {
+		t.Errorf("expected no LocalAppDataFolder reference for an all-users install:\n%s", out)
+	}
+}
+
+// TestWxsTemplate_PerUserInstallScope covers InstallScope ==
+// InstallScopeCurrentUser: ALLUSERS omitted entirely (not set to "0" -
+// that's not a valid MSI value), rooted at LocalAppDataFolder instead of
+// ProgramFiles64Folder - the two always move together, since a per-user
+// context can't write to Program Files without elevation.
+func TestWxsTemplate_PerUserInstallScope(t *testing.T) {
+	data := sampleWxsData()
+	data.PerUser = true
+
+	var buf bytes.Buffer
+	if err := wxsTemplate.Execute(&buf, data); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	out := buf.String()
+
+	if bytes.Contains([]byte(out), []byte("ALLUSERS")) {
+		t.Errorf("expected no ALLUSERS property for a per-user install:\n%s", out)
+	}
+	if !bytes.Contains([]byte(out), []byte("<Directory Id='LocalAppDataFolder'>")) {
+		t.Errorf("expected a LocalAppDataFolder root for a per-user install:\n%s", out)
+	}
+	if bytes.Contains([]byte(out), []byte("ProgramFiles64Folder")) {
+		t.Errorf("expected no ProgramFiles64Folder reference for a per-user install:\n%s", out)
+	}
+	// The INSTALLDIR tree itself must render identically either way -
+	// buildDirTree's root node Id is always the literal "INSTALLDIR"
+	// regardless of which standard directory wraps it.
+	if !bytes.Contains([]byte(out), []byte("<Directory Id='INSTALLDIR'")) {
+		t.Errorf("expected the INSTALLDIR tree to still render under LocalAppDataFolder:\n%s", out)
+	}
+}
+
+// TestWxsTemplate_FileAssociation covers the whole association shape:
+// ProgId/Extension/Verb (confirmed against a real compiled .msi's own
+// Registry/Component tables - see manual_verify_test.go's
+// TestManualRealBuild - that this compiles to correct registry rows, not
+// just guessed from reading the WiX schema) plus a hand-written
+// DefaultIcon RegistryValue, since wixl silently ignores ProgId's own
+// Icon/IconIndex attributes.
+func TestWxsTemplate_FileAssociation(t *testing.T) {
+	data := sampleWxsData()
+	data.BinaryFileID = "file_TestApp_exe"
+	data.FileAssociations = []wxsFileAssociation{
+		{ExtensionNoDot: "myp", ProgID: "testapp.myp", Description: "Test App Project", ContentType: "application/x-testapp-myp", ComponentID: "cmp_assoc_myp"},
+	}
+
+	var buf bytes.Buffer
+	if err := wxsTemplate.Execute(&buf, data); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	out := buf.String()
+
+	for _, want := range []string{
+		"<Component Id='cmp_assoc_myp' Guid='*'>",
+		"<ProgId Id='testapp.myp' Description='Test App Project'>",
+		"<Extension Id='myp' ContentType='application/x-testapp-myp'>",
+		"<Verb Id='open' Command='Open' TargetFile='file_TestApp_exe' Argument='\"%1\"'/>",
+		`<RegistryValue Root='HKCR' Key='testapp.myp\DefaultIcon' Value='[INSTALLDIR]TestApp.exe,0' Type='string' KeyPath='yes'/>`,
+		"<ComponentRef Id='cmp_assoc_myp'/>",
+	} {
+		if !bytes.Contains([]byte(out), []byte(want)) {
+			t.Errorf("expected %q in output when a FileAssociation is set:\n%s", want, out)
+		}
+	}
+}
+
+func TestWxsTemplate_NoFileAssociationsMeansNoProgId(t *testing.T) {
+	var buf bytes.Buffer
+	if err := wxsTemplate.Execute(&buf, sampleWxsData()); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if bytes.Contains(buf.Bytes(), []byte("ProgId")) {
+		t.Errorf("expected no ProgId element when FileAssociations is empty:\n%s", buf.String())
+	}
+}

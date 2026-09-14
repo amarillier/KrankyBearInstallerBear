@@ -51,6 +51,46 @@ func (p *Project) Validate(baseDir string) error {
 		errs = append(errs, err)
 	}
 
+	if p.Windows.InstallScope != "" && p.Windows.InstallScope != InstallScopeAllUsers && p.Windows.InstallScope != InstallScopeCurrentUser {
+		errs = append(errs, fmt.Errorf("windows.install_scope %q is not valid (want %q or %q)",
+			p.Windows.InstallScope, InstallScopeAllUsers, InstallScopeCurrentUser))
+	}
+
+	if err := validateFileAssociations(p.FileAssociations); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// validateFileAssociations requires a leading dot (the field's own doc
+// comment says extensions are stored with one, so a value without it is
+// almost certainly a typo, not a deliberate choice) and rejects duplicate
+// extensions (the second one would just silently overwrite the first
+// one's registry/desktop entries at build time otherwise).
+func validateFileAssociations(assocs []FileAssociation) error {
+	var errs []error
+	seen := make(map[string]bool, len(assocs))
+	for _, a := range assocs {
+		if a.Extension == "" {
+			errs = append(errs, errors.New("file_associations: extension is required"))
+			continue
+		}
+		if !strings.HasPrefix(a.Extension, ".") {
+			errs = append(errs, fmt.Errorf("file_associations: extension %q must start with a dot (e.g. %q)", a.Extension, "."+a.Extension))
+			continue
+		}
+		if a.Extension == "." {
+			errs = append(errs, errors.New("file_associations: extension \".\" has nothing after the dot"))
+			continue
+		}
+		key := strings.ToLower(a.Extension)
+		if seen[key] {
+			errs = append(errs, fmt.Errorf("file_associations: extension %q is registered more than once", a.Extension))
+			continue
+		}
+		seen[key] = true
+	}
 	return errors.Join(errs...)
 }
 

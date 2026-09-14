@@ -25,12 +25,14 @@ var wxsTemplate = template.Must(template.New("app.wxs").Parse(`<?xml version='1.
     <Package Id='*' Keywords='Installer' Description='{{.ProductDescription}}' Manufacturer='{{.Manufacturer}}' InstallerVersion='200' Languages='1033' Compressed='yes' SummaryCodepage='1252'/>
     <Media Id='1' Cabinet='product.cab' EmbedCab='yes'/>
     <MajorUpgrade DowngradeErrorMessage='A newer version of [ProductName] is already installed.'/>
+{{if not .PerUser}}
     <!-- Without ALLUSERS=1, Windows Installer defaults to a per-user
          context, which mismatches the ProgramFiles64Folder-rooted directory
          tree below: the install silently fails to elevate, rolls back with
          no error dialog (there's no custom UI to show one in), and leaves
          nothing behind - no files, no Programs-and-Features entry. -->
     <Property Id='ALLUSERS' Value='1'/>
+{{end}}
 {{if .IconFile}}
     <!-- Without this, Windows Installer shows a generic default icon for
          this product in "Apps & Features"/Programs and Features, unlike
@@ -71,6 +73,18 @@ var wxsTemplate = template.Must(template.New("app.wxs").Parse(`<?xml version='1.
     <Condition Message='This installer requires accepting the license. Run it interactively, or pass ACCEPTEULA=1 for a silent/unattended install.'>Installed OR ACCEPTEULA="1" OR UILevel &gt; 3</Condition>
 {{end}}
     <Directory Id='TARGETDIR' Name='SourceDir'>
+{{if .PerUser -}}
+      <!-- LocalAppDataFolder is the standard WiX/MSI directory id for
+           %LOCALAPPDATA% - writable without elevation, unlike the
+           all-users root the else branch below uses, which is why
+           InstallScope's current-user variant roots here instead (paired
+           with omitting the all-users elevation property above - see
+           packproject.WindowsOptions.InstallScope's own doc comment on
+           why the two always move together). -->
+      <Directory Id='LocalAppDataFolder'>
+{{template "dir" .Root}}
+      </Directory>
+{{else -}}
       <!-- ProgramFilesFolder ALWAYS resolves to "Program Files (x86)" on
            64-bit Windows, regardless of this package's own bitness (wixl is
            always invoked with -a x64, see build.go) - confirmed the hard
@@ -81,6 +95,7 @@ var wxsTemplate = template.Must(template.New("app.wxs").Parse(`<?xml version='1.
       <Directory Id='ProgramFiles64Folder' Name='PFiles'>
 {{template "dir" .Root}}
       </Directory>
+{{end -}}
       <Directory Id='ProgramMenuFolder'>
         <Directory Id='{{.ProgramMenuDirID}}' Name='{{.AppName}}'>
           <Component Id='{{.ShortcutComponentID}}' Guid='*'>
@@ -101,6 +116,29 @@ var wxsTemplate = template.Must(template.New("app.wxs").Parse(`<?xml version='1.
                every account on the machine. -->
           <Component Id='{{.AutostartComponentID}}' Guid='*'>
             <RegistryValue Root='HKCU' Key='Software\Microsoft\Windows\CurrentVersion\Run' Name='{{.AppName}}' Type='string' Value='[INSTALLDIR]{{.ShortcutTargetName}}' KeyPath='yes'/>
+          </Component>
+{{end}}
+{{range .FileAssociations}}
+          <!-- Always unconditional (no author toggle, no end-user
+               checkbox) - registering a file type is the whole point of
+               setting one. Root='HKCR' regardless of PerUser: Windows'
+               own registry virtualization redirects an unprivileged
+               process's HKCR writes to HKCU\Software\Classes, so this
+               needs no manual scope switching (see
+               packproject.FileAssociation's own doc comment). ProgId's
+               own Icon/IconIndex attributes are NOT used here - confirmed
+               empirically that wixl 0.106 silently ignores them (a
+               GObject "no property named Icon" warning, not even a hard
+               error) - so DefaultIcon is written by hand as a plain
+               RegistryValue instead, the same proven mechanism every
+               other registry entry in this template already uses. -->
+          <Component Id='{{.ComponentID}}' Guid='*'>
+            <ProgId Id='{{.ProgID}}' Description='{{.Description}}'>
+              <Extension Id='{{.ExtensionNoDot}}' ContentType='{{.ContentType}}'>
+                <Verb Id='open' Command='Open' TargetFile='{{$.BinaryFileID}}' Argument='"%1"'/>
+              </Extension>
+            </ProgId>
+            <RegistryValue Root='HKCR' Key='{{.ProgID}}\DefaultIcon' Value='[INSTALLDIR]{{$.ShortcutTargetName}},0' Type='string' KeyPath='yes'/>
           </Component>
 {{end}}
         </Directory>
@@ -125,6 +163,7 @@ var wxsTemplate = template.Must(template.New("app.wxs").Parse(`<?xml version='1.
 {{end}}      <ComponentRef Id='{{.ShortcutComponentID}}'/>
 {{if .DesktopShortcut}}      <ComponentRef Id='{{.DesktopShortcutComponentID}}'/>
 {{end}}{{if .AutostartAtLogin}}      <ComponentRef Id='{{.AutostartComponentID}}'/>
+{{end}}{{range .FileAssociations}}      <ComponentRef Id='{{.ComponentID}}'/>
 {{end}}    </Feature>
 {{if or .HasLicense .LaunchAfterInstall}}
     <!-- wixl's bundled "ui" extension (the "-ext ui" flag in build.go) reimplements
@@ -206,4 +245,37 @@ type wxsData struct {
 	// used for anything else here; the installed binary's own icon (if
 	// any) comes from however that binary itself was compiled.
 	IconFile string
+	// PerUser mirrors packproject.WindowsOptions.InstallScope ==
+	// InstallScopeCurrentUser - an author-time-only choice, same reasoning
+	// as DesktopShortcut/AutostartAtLogin above (wixl's bundled UI has no
+	// equivalent InstallScopeDlg/WixUI_Advanced to offer this as a real
+	// end-user runtime pick - confirmed by checking the installed
+	// msitools build's own bundled ext/ui directory). Omits ALLUSERS
+	// entirely (not "0" - not a valid MSI value) and roots the install
+	// tree at LocalAppDataFolder instead of ProgramFiles64Folder when
+	// true - the two always move together, since a per-user (non-
+	// elevated) context can't write to Program Files at all.
+	PerUser bool
+	// FileAssociations mirrors packproject.Project.FileAssociations -
+	// always unconditional, matching winexe's own FileAssociations
+	// handling (see nsiData's own doc comment on why this isn't gated
+	// behind a toggle the way DesktopShortcut/AutostartAtLogin are).
+	FileAssociations []wxsFileAssociation
+}
+
+// wxsFileAssociation is one packproject.FileAssociation translated into
+// WiX/wixl terms. ProgID/ContentType/ComponentID are all computed once in
+// build.go, not stored in the schema itself - implementation details, not
+// something a project author needs to see or name.
+type wxsFileAssociation struct {
+	// ExtensionNoDot is the extension WITHOUT its leading dot - WiX's own
+	// <Extension Id='...'> attribute is the bare extension (wixl reads it
+	// that way; a leading dot there breaks the generated .myp registry
+	// key path), unlike ProgID/DefaultIcon below which do want the dot
+	// baked into the registry key text itself.
+	ExtensionNoDot string
+	ProgID         string
+	Description    string
+	ContentType    string
+	ComponentID    string
 }

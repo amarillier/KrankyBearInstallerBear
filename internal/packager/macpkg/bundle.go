@@ -90,16 +90,41 @@ func BuildAppBundle(proj *packproject.Project, arch, destDir string) (string, er
 
 	// Only copy a real Info.plist into the bundle when the project's own
 	// directory already has one - i.e. the user deliberately renamed their
-	// Info-plist.txt placeholder to activate it. Never synthesize one by
-	// default: this project's own historical package.sh/fpm convention
+	// Info-plist.txt placeholder to activate it. Never synthesize one from
+	// scratch: this project's own historical package.sh/fpm convention
 	// ships every app with no real Info.plist at all (just the placeholder
 	// text, verbatim) specifically to avoid it, and some IT security
 	// scanning apparently flags a real one - and pkgbuild's --root mode
 	// (see build.go) doesn't require one the way --component mode does, so
 	// there's no technical reason to force it either.
-	if realPlist := filepath.Join(proj.BaseDir, "Info.plist"); fileExists(realPlist) {
-		if err := copyFile(realPlist, filepath.Join(appPath, "Contents", "Info.plist"), 0o644); err != nil {
-			return "", fmt.Errorf("macpkg: copying Info.plist: %w", err)
+	//
+	// Exception: when FileAssociations are configured, Info-plist.txt is
+	// promoted to a real functional Info.plist too, even without being
+	// renamed - a real CFBundleDocumentTypes entry is an OS-level
+	// requirement for file-type association, so a project that
+	// deliberately opts into FileAssociations has already made that
+	// tradeoff explicitly; a project that hasn't configured any keeps
+	// Info-plist.txt exactly as inert as before.
+	plistSrc := filepath.Join(proj.BaseDir, "Info.plist")
+	if !fileExists(plistSrc) && len(proj.FileAssociations) > 0 {
+		if candidate := filepath.Join(proj.BaseDir, "Info-plist.txt"); fileExists(candidate) {
+			plistSrc = candidate
+		}
+	}
+	if fileExists(plistSrc) {
+		content, err := os.ReadFile(plistSrc)
+		if err != nil {
+			return "", fmt.Errorf("macpkg: reading %s: %w", filepath.Base(plistSrc), err)
+		}
+		icnsFileName := ""
+		if proj.Identity.Icons.ICNS != "" {
+			icnsFileName = proj.Identity.Name + ".icns"
+		}
+		if merged, injected := injectFileAssociationDocTypes(content, proj, icnsFileName); injected {
+			content = merged
+		}
+		if err := os.WriteFile(filepath.Join(appPath, "Contents", "Info.plist"), content, 0o644); err != nil {
+			return "", fmt.Errorf("macpkg: writing Info.plist: %w", err)
 		}
 	}
 

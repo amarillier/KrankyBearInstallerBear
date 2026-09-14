@@ -1,54 +1,213 @@
-Release notes
-KrankyBear InstallerBear: cross-platform GUI + CLI for packaging pre-built binaries
-into native Windows, macOS, and Linux installers, from one shared project file.
+# Release Notes
 
-Future ideas, roughly in the order we plan to tackle them (batched into
-small, shippable, testable chunks rather than one big push - reassessed
-2026-09-09):
+KrankyBear InstallerBear: cross-platform GUI + CLI for packaging pre-built binaries into native Windows, macOS, and Linux installers, from one shared project file.
 
-Next up:
+## Future Ideas
 
-Then (bigger; tackle once the above is proven):
-- Install-experience options, part 2 - Launch-after-install, a Windows-only
-  Desktop shortcut toggle, a Release Notes viewer, and a Windows-only
-  Run-at-startup (autostart) toggle all shipped in 0.3.0 (see below); still
-  open:
-  - Real Linux .desktop-file generation (autostart via an XDG autostart
-    entry, and a proper desktop-icon equivalent to Windows' Desktop
-    shortcut) - Linux's LinuxOptions.DesktopCategories/DesktopComment
-    fields already exist in the schema but nothing currently generates a
-    .desktop file from them at all
-  - File associations and custom installer wizard pages
-  - Once these exist: [Registry]/[Icons]/[Tasks]/[Run]/[UninstallRun]/
-    [UninstallDelete] importing for "Import Existing Config" - the
-    importer already counts and reports these lines as skipped rather than
-    silently dropping them, ready to wire up once there's something to
-    import them into
+Roughly in the order we plan to tackle them (batched into small, shippable, testable chunks rather than one big push — reassessed 2026-09-09).
 
-Lower priority for now (confirmed with Allan 2026-09-09 - no certs yet for
-code signing, and choco/brew were just alternative-packaging thoughts he'd
-consider later, not a pressing need):
+### Next up
+
+*Nothing queued right now.*
+
+### Then (bigger; tackle once the above is proven)
+
+- Custom installer wizard pages - still just an idea, no concrete design yet (what a "page" would even configure isn't defined)
+- [Icons]/[Tasks]/[Run]/[UninstallRun]/[UninstallDelete] importing for "Import Existing Config" - [Registry]-based file associations are now imported (see 0.5.0 below); these five remaining Inno sections are still just counted and reported as skipped rather than silently dropped, ready to wire up once there's a concrete need
+- Real Linux autostart (XDG autostart) is still deliberately unsolved - the only real mechanism there (/etc/xdg/autostart) is system-wide, unlike Windows' own per-user toggle, a genuine semantic mismatch worth a real decision rather than a quick wrong-shaped fix - for now we will defer, maybe skip this as never do, to be decided
+- Windows ARM64 .msi is currently NOT achievable - confirmed empirically 2026-09-14 by testing wixl 0.106 directly: it only recognizes x86/x64/intel/intel64 as -a values, arm64/aarch64/amd64 all hard-error with "arch of type 'X' is not supported". Not a hardcoded-flag bug fixable here - a genuine limitation of the wixl build this project deliberately chose over Microsoft's own WiX (path-validation bug on non-Windows hosts, see winmsi's own package doc comment). Setup.exe/NSIS has no such limitation - winexe/build.go has no arch-specific packaging logic at all, since NSIS doesn't encode target CPU architecture into the installer format the way MSI does - so it should already work for a real windows/arm64 binary with zero code changes, though this is genuinely untested on real ARM64 Windows hardware. If real MSI-for-ARM64 is ever worth solving: a second, Windows-only backend using real Microsoft WiX (v4/v5) would be the honest path, since the original reason to avoid it (broken path validation on macOS/Linux build hosts) wouldn't apply on a build that genuinely runs on a native Windows GitHub Actions runner (windows-11-arm/windows-11-vs2026-arm, GA since 2026-08-19) - a bigger, separate piece of work, not a quick fix
+
+### Lower priority for now
+
+Confirmed with Allan 2026-09-09 - no certs yet for code signing, and choco/brew were just alternative-packaging thoughts he'd consider later, not a pressing need.
+
 - code signing for NSIS/MSI/pkg/deb/rpm outputs
-- choco and brew, with notes on self hosting use and also notes on
-  submission and approval for real choco and brew based hosting
+- choco and brew, with notes on self hosting use and also notes on submission and approval for real choco and brew based hosting
 
-Smaller, uncategorized:
-- Improve "Show/Hide All Windows" to remember exactly which secondary windows
-  were open, instead of the current blanket a.Driver().AllWindows() approach
-  (which can re-show a window closed earlier in the session)
-Maybe later considerations, defer for now, lower value
-  - maybe some day i18n language support
-  - maybe some day a macOS .dmg target, alongside .pkg (not instead of -
-    Allan's fine with .pkg either way, this is a "someday maybe, maybe
-    never" thought, not a real ask). Worth noting if it ever comes up:
-    a .dmg is a different distribution model entirely, not a script-driven
-    installer like .pkg - just a mounted disk image with the .app bundle
-    and an /Applications symlink, drag-to-install, no pkgbuild/postinstall
-    scripts involved at all (hdiutil create is the whole mechanism), so it
-    could actually be a lighter lift than .pkg was, not a harder one
+### Smaller, uncategorized
 
-Version 0.3.0 - September 12, 2026
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- Improve "Show/Hide All Windows" to remember exactly which secondary windows were open, instead of the current blanket a.Driver().AllWindows() approach (which can re-show a window closed earlier in the session)
+
+### Maybe later, lower value
+
+- maybe some day i18n language support
+- maybe some day a macOS .dmg target, alongside .pkg (not instead of - Allan's fine with .pkg either way, this is a "someday maybe, maybe never" thought, not a real ask). Worth noting if it ever comes up: a .dmg is a different distribution model entirely, not a script-driven installer like .pkg - just a mounted disk image with the .app bundle and an /Applications symlink, drag-to-install, no pkgbuild/postinstall scripts involved at all (hdiutil create is the whole mechanism), so it could actually be a lighter lift than .pkg was, not a harder one
+
+## Version 0.5.0 - September 14, 2026
+
+- New File Associations: a new Identity-adjacent "File Associations" tab
+  lists Extension/Description pairs (e.g. `.myp` / "My App Project"), wired
+  into every applicable backend, Windows/Linux/macOS all included
+  - macOS (`.pkg`): conditional, not automatic - a real document-type
+    association needs `CFBundleDocumentTypes` in a genuine `Info.plist`,
+    and this project still never synthesizes one from scratch (see
+    0.3.0's note below). But when the project directory has a real
+    `Info.plist`, or its own `Info-plist.txt` placeholder (promoted to a
+    real, functional one even without renaming - configuring a File
+    Association at all is already an explicit opt-in to needing a real
+    plist), macpkg merges a `CFBundleDocumentTypes` array into a copy of
+    it automatically; an author's own hand-written entry there is always
+    left untouched, never fought or duplicated. With neither file present
+    there's still nothing to merge into, so macpkg logs a clear progress
+    note instead of silently no-op'ing or synthesizing one out of thin
+    air. A project with no File Associations configured keeps the exact
+    same "no Info.plist unless deliberately provided" behavior as before
+  - Setup.exe (NSIS): writes/removes plain `HKCR` registry entries
+    (ProgID, description, DefaultIcon, `shell\open\command`) - both
+    author-time only, no Components-page opt-out, since an association a
+    user didn't ask to skip is harmless, unlike Desktop shortcut/autostart
+  - .msi (wixl): a `<ProgId>` as a `<Component>` child, `<Extension>`/
+    `<Verb>` nested inside it, plus a hand-written `DefaultIcon`
+    `<RegistryValue>` - both found the hard way by testing minimal `.wxs`
+    files directly against a real `wixl` compile before writing the real
+    template: `<Extension>` nested directly under `<File>` crashes wixl
+    outright (`unhandled child File node Extension`), and `ProgId`'s own
+    `Icon`/`IconIndex` attributes are silently accepted by the XML parser
+    but never actually written to the compiled `.msi`'s Registry table (a
+    GObject property warning at compile time is the only clue). Verified
+    against a real compiled `.msi`'s Registry/Component/FeatureComponents
+    tables via `msiinfo export`, not just template-level testing
+  - .deb/.rpm: installs a real shared-mime-info package
+    (`/usr/share/mime/packages/<name>.xml`) and adds `MimeType=`/a
+    trailing `%f` to the `.desktop` entry's `Exec=` line, so the app shows
+    up in "Open With" and can receive a double-clicked file's path as an
+    argument; `update-mime-database` is refreshed best-effort on install/
+    removal alongside the existing icon-cache refresh from 0.4.0
+  - Windows ARM64 caveat below still applies to `.msi` here too - no new
+    limitation, just inherited
+- "Import Existing Config" (both the GUI dialog and the CLI's `import`
+  command) now also recognizes an existing Inno `[Registry]`-based file
+  association and proposes it for import - both real-world `.iss` shapes
+  are understood: the modern Inno-wizard-generated
+  `Software\Classes\.ext\OpenWithProgids` indirection, and the older,
+  simpler direct `HKCR\.ext` form some hand-written scripts use instead.
+  A candidate is only proposed once a matching `<ProgID>\shell\open\command`
+  line confirms it's a real, launchable association, not just a
+  coincidentally-shaped registry entry; re-running import is safe and
+  won't duplicate an extension already present. Verified against this
+  project's own real, committed `Inno/KrankyBearInstallerBear.iss` as
+  well as synthetic fixtures for both shapes
+- Explicitly out of scope this round (see "Future Ideas" above): custom
+  installer wizard pages (no concrete design yet), and importing the
+  remaining `[Icons]/[Tasks]/[Run]/[UninstallRun]/[UninstallDelete]` Inno
+  sections (only `[Registry]`-based file associations are wired up so far)
+
+## Version 0.4.0 - September 12, 2026
+
+- Real Linux `.desktop`-file generation for `.deb`/`.rpm`, closing the first
+  item in the "Future Ideas" list. Both formats now always install a real
+  app-menu entry at `/usr/share/applications/<name>.desktop` - unconditional,
+  not gated behind `install_experience.desktop_shortcut` the way Windows'
+  Desktop shortcut toggle is, since a `.desktop` file is how a Linux app
+  appears in the launcher at all on every major desktop environment (most
+  don't even have a separate literal "desktop icon" concept anymore), the
+  same reasoning as Windows' always-created Start Menu shortcut. Driven by
+  `Linux.DesktopCategories`/`DesktopComment` (both already existed in the
+  schema since 0.2.0, unused by any backend until now); when
+  `Identity.Icons.PNG` is set, it's also installed into the hicolor icon
+  theme (`/usr/share/icons/hicolor/256x256/apps/`) and referenced by name
+  from the `.desktop` entry's `Icon=` line. `update-desktop-database`/
+  `gtk-update-icon-cache` are refreshed best-effort on install and removal
+  (via nfpm's previously-unused PostInstall script slot, and appended after
+  the project's own `Hooks.PostUninstall` on removal rather than replacing
+  it) so the entry/icon show up without needing a logout - both silently
+  skip on a minimal/headless box that doesn't have them. Categories are
+  auto-normalized to the freedesktop-required semicolon-terminated form
+  (`Utility` -> `Utility;`) so a value typed by hand in the Identity tab
+  doesn't need to remember that convention. Deliberately left for later,
+  not solved this round: `install_experience.autostart_at_login` still has
+  no effect on Linux - the only real mechanism there (`/etc/xdg/autostart`)
+  is system-wide, affecting every user on the machine, unlike Windows' own
+  per-user HKCU Run key, a genuine semantic mismatch worth solving
+  separately rather than papering over
+- New Windows "Install for" choice: All users (the existing default -
+  requires admin elevation, installs to `Program Files`/
+  `ProgramFiles64Folder`, Programs & Features under `HKLM`) or Current user
+  only (no elevation needed at all, installs to `%LOCALAPPDATA%`/
+  `LocalAppDataFolder` instead, and Programs & Features moves to `HKCU`
+  since a non-elevated process can't write `HKLM`). Author-time-only on
+  both `Setup.exe` and `.msi` - confirmed neither backend can offer this as
+  a real end-user runtime pick without extra cost: `wixl`'s bundled UI has
+  no `WixUI_Advanced`/`InstallScopeDlg` equivalent (checked the installed
+  msitools build's own bundled `ext/ui` directory - only `WixUI_Minimal` is
+  there), and a real NSIS equivalent would need bundling the external UAC
+  plugin to elevate only after the choice is made. On `Setup.exe`, current-
+  user also switches `RequestExecutionLevel` from `admin` to `user` and
+  drops the `SetShellVarContext all` call that redirects the Start
+  Menu/Desktop shortcuts to the all-users ones (NSIS's own default context
+  is already per-user, so nothing extra is needed there). Defaults to All
+  users - every existing project's behavior is unchanged unless this is
+  explicitly opted into. Confirmed on real Windows hardware: Setup.exe
+  correctly prompts for elevation (UAC) when set to All users, and installs
+  with no elevation prompt at all when set to Current user only
+- New `output.post_build_hook`: inline shell script text that runs once, on
+  this build machine (not the target machine - unlike `hooks.pre_install`/
+  `post_uninstall`, which are baked into the installer package itself and
+  run later, elsewhere), right after every requested target/arch has
+  finished building. Only runs when the whole build succeeded - skipped
+  with a clear progress note otherwise, since acting on "all the artifacts"
+  rarely makes sense with some missing. Every successfully built artifact's
+  path is handed to the script as an `INSTALLERBEAR_OUTPUT_<TARGET>`
+  environment variable (or `INSTALLERBEAR_OUTPUT_<TARGET>_<ARCH>` when a
+  target built more than one arch, since a single bare name couldn't hold
+  more than one path), plus `INSTALLERBEAR_ARTIFACTS` (all of them,
+  space-separated) and a few identity basics. A general escape hatch for
+  things this tool doesn't implement natively - uploading to GitHub
+  Releases, code signing, notarization, and so on - rather than growing a
+  dedicated feature for each one; a new project idea, not previously on the
+  "Future Ideas" list. Runs the script file directly (not `/bin/sh <path>`)
+  so a custom shebang is honored, the same convention a real `.deb`/`.rpm`
+  maintainer script already gets from `dpkg`/`rpm` itself. Verified with a
+  real end-to-end test: `Run()` actually executes the hook as a subprocess
+  and confirms it received the right environment variable for a real
+  build's output path, not just a unit test of the env-var-building logic
+  in isolation
+- The Identity tab gained a new **Hooks** section (`pre_install`/
+  `post_uninstall`, run on the target machine by the installed macOS
+  `.pkg`/Linux `.deb`/`.rpm` package) and a **Post-build hook** field in the
+  Output section (`output.post_build_hook`, run immediately on this build
+  machine) - all three previously had to be typed directly into
+  installerbear.yaml by hand, with no GUI exposure at all. Multi-line text
+  entries, since real shell script text needs more than one line to be
+  usable to read/type. Also updated the in-app Help text: mentioned the
+  new Hooks fields, corrected two stale "Known Limitations" bullets
+  (unsaved-changes confirmation and inline Payload editing were both
+  already shipped, just never removed from that list) and a stale
+  "Check Help → Check for Updates for release notes" line (the real
+  Release Notes menu item didn't exist yet when that was written), and
+  added a Windows ARM64 .msi limitation note
+- Confirmed empirically (not assumed) that `wixl` 0.106 - the tool this
+  project uses for `.msi` - has no ARM64 support at all: every arch string
+  it recognizes (`x86`/`x64`/`intel`/`intel64`) is x86-family only;
+  `arm64`/`aarch64`/`amd64` all hard-error with "arch of type 'X' is not
+  supported". `Setup.exe`/NSIS has no such limitation (it doesn't encode
+  target CPU architecture into the installer format the way MSI does), so
+  it should already work for a real `windows/arm64` binary with zero code
+  changes - untested on real ARM64 Windows hardware. Logged as a known
+  limitation rather than "fixed", since this is a genuine tool constraint,
+  not a bug in this project's own code
+- Fixed a real bug in the Release Notes viewer's lazy-loading, found via
+  Allan's own hands-on testing (a fresh binary, not `go run .`): the
+  content would finish loading in the background correctly, but never
+  actually appear on screen until something else happened - closing and
+  reopening the window, or clicking the Release Notes menu item a second
+  time while it was already open (both times the real content then showed
+  up "almost instantly", since it had already finished loading, just never
+  got painted). Root cause, confirmed by reading Fyne's own source rather
+  than guessed: `scroll.Content = richText; scroll.Refresh()` only
+  recomputes the Scroll widget's own layout - it never touches the
+  canvas's dirty flag, which is what the 60Hz paint loop actually gates a
+  repaint on. Fixed by also calling
+  `releaseNotesWindow.Canvas().Refresh(scroll)` right after -
+  `fyne.Canvas.Refresh(CanvasObject)` is the real, public API for "this
+  object's content changed, please repaint it", confirmed against Fyne
+  v2.8.1's own internal canvas/driver source. A real lesson for any future
+  in-place content swap in this codebase: a widget's own `.Refresh()`
+  doesn't guarantee a repaint when you've mutated its content out from
+  under an already-rendered tree - the canvas's own `Refresh(obj)` does
+
+## Version 0.3.0 - September 12, 2026
+
 - Payload tab: every cell is now directly editable in place - type into
   Source/Dest/OS filter or toggle Recursive right in the table, no dialog
   round-trip needed for a quick tweak. Add File/Add Folder/Edit.../Remove
@@ -75,8 +234,8 @@ Version 0.3.0 - September 12, 2026
     - verified empirically against a real compiled .msi's CustomAction/
     ControlEvent tables, since an old code comment claiming wixl doesn't
     support EXE-based CustomActions turned out to be wrong (now corrected
-    - same story as the macpkg Info.plist assumption earlier this
-    version). Opting this in without a real license set still pulls in
+    - same story as the macpkg Info.plist assumption later this version).
+    Opting this in without a real license set still pulls in
     WixUI_Minimal's Welcome/EULA page (a placeholder license is written
     automatically) - the two are one bundled stock UI in wixl's shipped
     extension, not separable
@@ -216,8 +375,8 @@ Version 0.3.0 - September 12, 2026
   existing folder's release notes, matching the new convention; .txt-based
   projects are still found just as well, only the preference order changed.
 
-Version 0.2.0 - September 11, 2026
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## Version 0.2.0 - September 11, 2026
+
 - New Project smart defaults: pick a folder and best-effort-fill Publisher,
   URL, License file, and icons from its git remote/identity, LICENSE file,
   and assets/images icons
@@ -374,10 +533,10 @@ Version 0.2.0 - September 11, 2026
   sibling TaniumSensorExplorer (gui_display_linux.go/
   gui_display_nonlinux.go, checked before app.NewWithID is ever called)
 
-Version 0.1.0 - September 03, 2026
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-✨ NEW Cross-platform installer builder
-▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+## Version 0.1.0 - September 03, 2026
+
+**✨ NEW Cross-platform installer builder**
+
 - Project-based workflow: identity, per-OS/arch binaries, payload, and build
   targets all live in one packman.yaml project file (New/Open/Save/Save As)
 - Identity tab: name, bundle ID, version, publisher, vendor, URL, description,

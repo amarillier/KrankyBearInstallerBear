@@ -11,6 +11,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"installerbear/internal/innoimport"
 	"installerbear/internal/packproject"
@@ -116,7 +117,53 @@ func buildImportFields(current *packproject.Project, pkg innoimport.PkgConfigRes
 		})
 	}
 
+	// FileAssociations don't fit add()'s "one scalar value, maybe
+	// overwrite" shape (a project can have any number of them, each an
+	// independent add-or-skip, the same shape Payload candidates already
+	// have) - built as plain importFields directly instead, one per new
+	// candidate, each with current == "" so both the GUI (defaults the
+	// checkbox to checked) and the CLI (treats it as "fill", not gated
+	// behind -overwrite) read it the same way a brand-new list item
+	// should behave, not like overwriting an existing scalar.
+	for _, assoc := range newFileAssociationCandidates(current.FileAssociations, iss.FileAssociations) {
+		assoc := assoc
+		proposed := assoc.Extension
+		if assoc.Description != "" {
+			proposed += " (" + assoc.Description + ")"
+		}
+		fields = append(fields, importField{
+			label:    "File association",
+			current:  "",
+			proposed: proposed,
+			apply: func(p *packproject.Project) {
+				p.FileAssociations = append(p.FileAssociations, assoc)
+			},
+		})
+	}
+
 	return fields
+}
+
+// newFileAssociationCandidates filters candidates down to ones whose
+// Extension isn't already registered in existing - the same
+// already-present de-duplication newPayloadCandidates already does for
+// Payload, so re-running an import doesn't pile up duplicate associations
+// (matched case-insensitively, matching packproject.Validate's own
+// duplicate-extension check).
+func newFileAssociationCandidates(existing, candidates []packproject.FileAssociation) []packproject.FileAssociation {
+	haveExt := make(map[string]bool, len(existing))
+	for _, e := range existing {
+		haveExt[strings.ToLower(e.Extension)] = true
+	}
+
+	var out []packproject.FileAssociation
+	for _, c := range candidates {
+		if haveExt[strings.ToLower(c.Extension)] {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // newPayloadCandidates filters candidates down to ones whose Source isn't

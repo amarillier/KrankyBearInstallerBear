@@ -50,6 +50,9 @@ func TestManualRealBuild(t *testing.T) {
 			ExeName:     "TestApp.exe",
 			UpgradeGUID: "{4578B785-DB27-44FF-B3F9-2713B327BB90}",
 		},
+		FileAssociations: []packproject.FileAssociation{
+			{Extension: ".myp", Description: "Test App Project"},
+		},
 	}
 	proj.Defaults()
 	proj.Output.Dir = filepath.Join(dir, "out")

@@ -272,3 +272,91 @@ func TestBuildAppBundle_CopiesPlaceholderDocs(t *testing.T) {
 		t.Error("expected copying the placeholder docs to have no effect on real Info.plist handling")
 	}
 }
+
+// TestBuildAppBundle_FileAssociationsInjectedIntoRealInfoPlist covers the
+// main new case: a project with a real, hand-placed Info.plist AND
+// FileAssociations configured gets CFBundleDocumentTypes merged into the
+// copy that lands in Contents/Info.plist - real file-type association
+// requires this, and this backend can now provide it without abandoning
+// the "never synthesize from scratch" policy, since it's built from the
+// project's own existing plist content.
+func TestBuildAppBundle_FileAssociationsInjectedIntoRealInfoPlist(t *testing.T) {
+	dir := t.TempDir()
+	proj := sampleProject(t, dir)
+	proj.FileAssociations = []packproject.FileAssociation{{Extension: ".myp", Description: "My App Project"}}
+	if err := os.WriteFile(filepath.Join(dir, "Info.plist"), []byte(testPlist), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	appPath, err := BuildAppBundle(proj, "arm64", filepath.Join(dir, "out"))
+	if err != nil {
+		t.Fatalf("BuildAppBundle: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(appPath, "Contents", "Info.plist"))
+	if err != nil {
+		t.Fatalf("expected Contents/Info.plist to exist: %v", err)
+	}
+	if !strings.Contains(string(data), "CFBundleDocumentTypes") {
+		t.Errorf("expected CFBundleDocumentTypes to be merged in, got:\n%s", data)
+	}
+	if !strings.Contains(string(data), "<key>CFBundleName</key>") || !strings.Contains(string(data), "<string>TestApp</string>") {
+		t.Errorf("expected the original plist content to still be present, got:\n%s", data)
+	}
+}
+
+// TestBuildAppBundle_FileAssociationsPromoteInfoPlistTxtToFunctional covers
+// the case Allan asked for directly: no real Info.plist exists yet, only
+// the inert Info-plist.txt placeholder - but FileAssociations are
+// configured, so a real functional Contents/Info.plist (built from
+// Info-plist.txt's own content, plus the association entries) should be
+// produced anyway, making file associations reachable without forcing a
+// permanent rename. The separate, unmodified documentation copy at
+// Contents/Info-plist.txt must still happen too, untouched.
+func TestBuildAppBundle_FileAssociationsPromoteInfoPlistTxtToFunctional(t *testing.T) {
+	dir := t.TempDir()
+	proj := sampleProject(t, dir)
+	proj.FileAssociations = []packproject.FileAssociation{{Extension: ".myp", Description: "My App Project"}}
+	if err := os.WriteFile(filepath.Join(dir, "Info-plist.txt"), []byte(testPlist), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	appPath, err := BuildAppBundle(proj, "arm64", filepath.Join(dir, "out"))
+	if err != nil {
+		t.Fatalf("BuildAppBundle: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(appPath, "Contents", "Info.plist"))
+	if err != nil {
+		t.Fatalf("expected Contents/Info.plist to be synthesized from Info-plist.txt: %v", err)
+	}
+	if !strings.Contains(string(data), "CFBundleDocumentTypes") {
+		t.Errorf("expected CFBundleDocumentTypes to be merged in, got:\n%s", data)
+	}
+
+	docCopy, err := os.ReadFile(filepath.Join(appPath, "Contents", "Info-plist.txt"))
+	if err != nil {
+		t.Fatalf("expected Contents/Info-plist.txt documentation copy to still exist: %v", err)
+	}
+	if string(docCopy) != testPlist {
+		t.Error("expected the Info-plist.txt documentation copy to remain the original, unmodified content")
+	}
+}
+
+// TestBuildAppBundle_FileAssociationsNoOpWithoutAnyPlistSource confirms the
+// existing "no Info.plist unless one is deliberately provided" policy still
+// holds when FileAssociations are configured but the project directory has
+// neither a real Info.plist nor an Info-plist.txt to build one from -
+// there's nothing to inject into, so nothing is synthesized from scratch.
+func TestBuildAppBundle_FileAssociationsNoOpWithoutAnyPlistSource(t *testing.T) {
+	dir := t.TempDir()
+	proj := sampleProject(t, dir)
+	proj.FileAssociations = []packproject.FileAssociation{{Extension: ".myp"}}
+
+	appPath, err := BuildAppBundle(proj, "arm64", filepath.Join(dir, "out"))
+	if err != nil {
+		t.Fatalf("BuildAppBundle: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(appPath, "Contents", "Info.plist")); err == nil {
+		t.Error("expected no Contents/Info.plist when neither Info.plist nor Info-plist.txt exists")
+	}
+}

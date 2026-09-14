@@ -73,6 +73,10 @@ func (e *editor) buildIdentityTab() fyne.CanvasObject {
 	})
 	e.exeNameEntry = bindEntry(widget.NewEntry(), func(v string) { e.proj.Windows.ExeName = v })
 
+	e.installScopeSelect = widget.NewSelect(installScopeLabels(), func(label string) {
+		e.proj.Windows.InstallScope = installScopeFromLabel(label)
+	})
+
 	e.launchAfterInstallCheck = widget.NewCheck("", func(v bool) { e.proj.InstallExperience.LaunchAfterInstall = v })
 	e.desktopShortcutCheck = widget.NewCheck("", func(v bool) { e.proj.InstallExperience.DesktopShortcut = v })
 	e.autostartAtLoginCheck = widget.NewCheck("", func(v bool) { e.proj.InstallExperience.AutostartAtLogin = v })
@@ -80,17 +84,24 @@ func (e *editor) buildIdentityTab() fyne.CanvasObject {
 	windowsForm := widget.NewForm(
 		widget.NewFormItem("Upgrade GUID", container.NewBorder(nil, nil, nil, generateGUID, e.guidEntry)),
 		widget.NewFormItem("Exe name", e.exeNameEntry),
+		// Author-time-only on both backends - neither wixl's bundled UI
+		// nor a dependency-free NSIS script can offer this as a real
+		// end-user runtime pick (see
+		// packproject.WindowsOptions.InstallScope's own doc comment).
+		widget.NewFormItem("Install for", e.installScopeSelect),
 		// Both Setup.exe and .msi always create a Start Menu shortcut; these
-		// three are the only Windows-specific install-experience choices
-		// exposed today (see packproject.InstallExperience's own doc
-		// comment on why they're author-time YAML settings, not something
-		// exposed identically on macOS/Linux - both backends there just log
-		// a note that these have no effect rather than silently ignoring
-		// them, see macpkg/debrpm's own Build()).
+		// three are the only other Windows-specific install-experience
+		// choices exposed today (see packproject.InstallExperience's own
+		// doc comment on why they're author-time YAML settings, not
+		// something exposed identically on macOS/Linux - both backends
+		// there just log a note that these have no effect rather than
+		// silently ignoring them, see macpkg/debrpm's own Build()).
 		widget.NewFormItem("Launch after install", e.launchAfterInstallCheck),
 		widget.NewFormItem("Desktop shortcut", e.desktopShortcutCheck),
 		widget.NewFormItem("Run at startup (autostart)", e.autostartAtLoginCheck),
 	)
+
+	e.installScopeSelect.SetSelected(installScopeLabelAllUsers) // sensible starting state for a brand-new project; refreshIdentityTab overrides on Open
 
 	e.macExecEntry = bindEntry(widget.NewEntry(), func(v string) { e.proj.MacOS.BundleExecutable = v })
 	e.macMinOSEntry = bindEntry(widget.NewEntry(), func(v string) { e.proj.MacOS.MinSystemVersion = v })
@@ -103,6 +114,7 @@ func (e *editor) buildIdentityTab() fyne.CanvasObject {
 	)
 
 	e.linuxCategoriesEntry = bindEntry(widget.NewEntry(), func(v string) { e.proj.Linux.DesktopCategories = v })
+	e.linuxCategoriesEntry.SetPlaceHolder("e.g. Utility;Development (used in the generated .desktop entry)")
 	e.linuxCommentEntry = bindEntry(widget.NewEntry(), func(v string) { e.proj.Linux.DesktopComment = v })
 
 	linuxForm := widget.NewForm(
@@ -110,9 +122,38 @@ func (e *editor) buildIdentityTab() fyne.CanvasObject {
 		widget.NewFormItem("Desktop comment", e.linuxCommentEntry),
 	)
 
+	// Hooks (Hooks.PreInstall/PostUninstall) are inline POSIX shell text run
+	// on the TARGET machine, baked into the macpkg/debrpm package itself and
+	// executed later, elsewhere, by that package's own install/uninstall
+	// action - unrelated to Output's own PostBuildHook below (which runs
+	// immediately, locally, on THIS build machine). Both stayed YAML-only
+	// with no GUI field until now purely because nobody had added one yet,
+	// not by design - multi-line so real multi-command shell text is
+	// actually usable to type/read here, not squeezed into one line.
+	e.preInstallHookEntry = bindEntry(widget.NewMultiLineEntry(), func(v string) { e.proj.Hooks.PreInstall = v })
+	e.preInstallHookEntry.SetPlaceHolder("Inline shell script run on the target machine before macpkg/debrpm install (optional)")
+	e.postUninstallHookEntry = bindEntry(widget.NewMultiLineEntry(), func(v string) { e.proj.Hooks.PostUninstall = v })
+	e.postUninstallHookEntry.SetPlaceHolder("Inline shell script run on the target machine after macpkg/debrpm uninstall (optional)")
+
+	hooksForm := widget.NewForm(
+		widget.NewFormItem("Pre-install (mac/Linux)", e.preInstallHookEntry),
+		widget.NewFormItem("Post-uninstall (mac/Linux)", e.postUninstallHookEntry),
+	)
+
 	e.outputDirEntry = bindEntry(widget.NewEntry(), func(v string) { e.proj.Output.Dir = v })
+	// PostBuildHook runs immediately, locally, on THIS build machine right
+	// after every requested target/arch finishes - not baked into any
+	// installed package the way the Hooks fields above are. A general
+	// escape hatch for things this tool doesn't implement natively
+	// (uploading to GitHub Releases, code signing, notarization, ...) -
+	// see packproject.OutputOptions.PostBuildHook's own doc comment for
+	// the full design, including the INSTALLERBEAR_OUTPUT_* environment
+	// variables it receives.
+	e.postBuildHookEntry = bindEntry(widget.NewMultiLineEntry(), func(v string) { e.proj.Output.PostBuildHook = v })
+	e.postBuildHookEntry.SetPlaceHolder("Inline shell script run once on this build machine after a successful build (optional) - sees INSTALLERBEAR_OUTPUT_<TARGET>/INSTALLERBEAR_ARTIFACTS env vars")
 	outputForm := widget.NewForm(
 		widget.NewFormItem("Output directory", newBrowseFolderRow(e.win, e.outputDirEntry)),
+		widget.NewFormItem("Post-build hook", e.postBuildHookEntry),
 	)
 
 	return container.NewVScroll(container.NewVBox(
@@ -121,6 +162,7 @@ func (e *editor) buildIdentityTab() fyne.CanvasObject {
 		sectionHeader("Windows"), windowsForm,
 		sectionHeader("macOS"), macForm,
 		sectionHeader("Linux"), linuxForm,
+		sectionHeader("Hooks"), hooksForm,
 		sectionHeader("Output"), outputForm,
 	))
 }
@@ -151,6 +193,45 @@ func (e *editor) refreshPNGIconThumbnail(pngPath string) {
 	e.pngIconThumbnail.File = resolved
 	e.pngIconThumbnail.Refresh()
 	e.pngIconThumbnail.Show()
+}
+
+// installScopeLabelAllUsers/installScopeLabelCurrentUser are the
+// e.installScopeSelect widget's own display strings — kept distinct from
+// packproject.InstallScopeAllUsers/InstallScopeCurrentUser (the schema's
+// own machine-readable values) since a Select's options are meant to read
+// like a sentence to the person filling in the form, not a YAML key.
+const (
+	installScopeLabelAllUsers    = "All users (requires admin)"
+	installScopeLabelCurrentUser = "Current user only"
+)
+
+// installScopeLabels is e.installScopeSelect's fixed option list, in
+// display order.
+func installScopeLabels() []string {
+	return []string{installScopeLabelAllUsers, installScopeLabelCurrentUser}
+}
+
+// installScopeFromLabel maps a Select label back to the schema value
+// packproject.WindowsOptions.InstallScope expects. Anything other than
+// the exact current-user label (including "", before a project is
+// loaded) maps to all-users — the existing, pre-this-field default
+// behavior, so an old project with no install_scope set at all still
+// reads as "All users" here rather than some third blank state.
+func installScopeFromLabel(label string) string {
+	if label == installScopeLabelCurrentUser {
+		return packproject.InstallScopeCurrentUser
+	}
+	return packproject.InstallScopeAllUsers
+}
+
+// installScopeLabel is installScopeFromLabel's inverse, used by
+// refreshIdentityTab to restore the Select's selection from a loaded
+// project.
+func installScopeLabel(scope string) string {
+	if scope == packproject.InstallScopeCurrentUser {
+		return installScopeLabelCurrentUser
+	}
+	return installScopeLabelAllUsers
 }
 
 // suggestBundleID drafts a starting-point reverse-DNS identifier — this is
@@ -231,6 +312,7 @@ func (e *editor) refreshIdentityTab() {
 	e.pngEntry.SetText(e.proj.Identity.Icons.PNG)
 	e.guidEntry.SetText(e.proj.Windows.UpgradeGUID)
 	e.exeNameEntry.SetText(e.proj.Windows.ExeName)
+	e.installScopeSelect.SetSelected(installScopeLabel(e.proj.Windows.InstallScope))
 	e.launchAfterInstallCheck.SetChecked(e.proj.InstallExperience.LaunchAfterInstall)
 	e.desktopShortcutCheck.SetChecked(e.proj.InstallExperience.DesktopShortcut)
 	e.autostartAtLoginCheck.SetChecked(e.proj.InstallExperience.AutostartAtLogin)
@@ -239,6 +321,9 @@ func (e *editor) refreshIdentityTab() {
 	e.macCategoryEntry.SetText(e.proj.MacOS.Category)
 	e.linuxCategoriesEntry.SetText(e.proj.Linux.DesktopCategories)
 	e.linuxCommentEntry.SetText(e.proj.Linux.DesktopComment)
+	e.preInstallHookEntry.SetText(e.proj.Hooks.PreInstall)
+	e.postUninstallHookEntry.SetText(e.proj.Hooks.PostUninstall)
 	e.outputDirEntry.SetText(e.proj.Output.Dir)
+	e.postBuildHookEntry.SetText(e.proj.Output.PostBuildHook)
 	e.updateWindowTitle()
 }

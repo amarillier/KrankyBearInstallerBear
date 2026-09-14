@@ -181,6 +181,62 @@ func TestNewPayloadCandidates_SkipsAlreadyPresentSources(t *testing.T) {
 	}
 }
 
+func TestNewFileAssociationCandidates_SkipsAlreadyRegisteredExtensions(t *testing.T) {
+	existing := []packproject.FileAssociation{{Extension: ".myp"}}
+	candidates := []packproject.FileAssociation{
+		{Extension: ".MYP", Description: "already present, different case -> skipped"},
+		{Extension: ".prj", Description: "new -> kept"},
+	}
+
+	got := newFileAssociationCandidates(existing, candidates)
+	if len(got) != 1 || got[0].Extension != ".prj" {
+		t.Errorf("newFileAssociationCandidates() = %+v, want only the .prj candidate", got)
+	}
+}
+
+// TestBuildImportFields_ProposesFileAssociation confirms a FileAssociation
+// found in the .iss flows all the way through buildImportFields as a
+// real importField - both the GUI review dialog and the CLI's cmdImport
+// apply *any* importField generically, so this one test covers both call
+// sites without needing separate GUI/CLI-specific wiring or tests.
+func TestBuildImportFields_ProposesFileAssociation(t *testing.T) {
+	proj := &packproject.Project{}
+	iss := innoimport.ISSResult{
+		FileAssociations: []packproject.FileAssociation{
+			{Extension: ".myp", Description: "My App Project"},
+		},
+	}
+
+	fields := buildImportFields(proj, innoimport.PkgConfigResult{}, iss)
+
+	f := fieldByLabel(t, fields, "File association")
+	if f == nil {
+		t.Fatal("expected a \"File association\" field")
+	}
+	if f.current != "" {
+		t.Errorf("current = %q, want \"\" (a new list item, not an overwrite) so both the GUI defaults it checked and the CLI treats it as fill-not-overwrite", f.current)
+	}
+	if f.proposed != ".myp (My App Project)" {
+		t.Errorf("proposed = %q, want %q", f.proposed, ".myp (My App Project)")
+	}
+
+	f.apply(proj)
+	if len(proj.FileAssociations) != 1 || proj.FileAssociations[0].Extension != ".myp" {
+		t.Errorf("apply() did not append the association, got %+v", proj.FileAssociations)
+	}
+}
+
+func TestBuildImportFields_AlreadyRegisteredFileAssociationIsNotProposedAgain(t *testing.T) {
+	proj := &packproject.Project{FileAssociations: []packproject.FileAssociation{{Extension: ".myp"}}}
+	iss := innoimport.ISSResult{FileAssociations: []packproject.FileAssociation{{Extension: ".myp"}}}
+
+	fields := buildImportFields(proj, innoimport.PkgConfigResult{}, iss)
+
+	if f := fieldByLabel(t, fields, "File association"); f != nil {
+		t.Errorf("expected no \"File association\" field when the extension is already registered, got %+v", f)
+	}
+}
+
 func TestParseProjectISS_UsesKBInnoISSPath(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "Custom"), 0o755); err != nil {
@@ -292,16 +348,16 @@ func TestImportPipeline_RealRepoFixture(t *testing.T) {
 	var notesOS []string
 	var sawNotes bool
 	for _, c := range issRes.Payload {
-		if c.Source == "ReleaseNotes.txt" {
+		if c.Source == "ReleaseNotes.md" {
 			notesOS = c.OS
 			sawNotes = true
 		}
 	}
 	if !sawNotes {
-		t.Fatal("expected a ReleaseNotes.txt candidate")
+		t.Fatal("expected a ReleaseNotes.md candidate")
 	}
 	if len(notesOS) != 0 {
-		t.Errorf("ReleaseNotes.txt OS = %v, want no restriction", notesOS)
+		t.Errorf("ReleaseNotes.md OS = %v, want no restriction", notesOS)
 	}
 }
 

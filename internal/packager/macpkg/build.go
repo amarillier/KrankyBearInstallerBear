@@ -77,6 +77,13 @@ func (p macpkgPackager) Build(ctx context.Context, proj *packproject.Project, op
 	if proj.InstallExperience.AutostartAtLogin {
 		p.emit(progress, "note: install_experience.autostart_at_login has no effect for macpkg yet - Windows-only for now (a real equivalent exists on macOS via a LaunchAgent plist, tracked separately if this comes up)")
 	}
+	if len(proj.FileAssociations) > 0 {
+		if hasPlistSource(proj) {
+			p.emit(progress, "note: file_associations added to the macOS Info.plist (CFBundleDocumentTypes) - found a real Info.plist or Info-plist.txt in the project directory to add them to")
+		} else {
+			p.emit(progress, "note: file_associations has no effect for macpkg yet - real file-type association needs CFBundleDocumentTypes in a genuine Info.plist, and this project directory has neither a real Info.plist nor Info-plist.txt to add it to; add one (see this file's own doc comment) to enable it")
+		}
+	}
 
 	outDir := proj.Output.Dir
 	if opts.OutputDir != "" {

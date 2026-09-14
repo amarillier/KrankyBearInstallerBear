@@ -38,8 +38,15 @@ fixing and performance work.
   have no preview — Go has no standard decoder for either format, and this
   project would rather stay lean than add a dependency per format for a
   small benefit.
-- Windows: Upgrade GUID (with a **Generate GUID** button), exe name, and
-  three install-experience toggles — **Launch after install** (a real,
+- Windows: Upgrade GUID (with a **Generate GUID** button), exe name,
+  **Install for** (All users, the default — requires admin elevation and
+  installs to `Program Files`/`ProgramFiles64Folder`; or Current user only —
+  no elevation, installs to `%LOCALAPPDATA%`/`LocalAppDataFolder`, and moves
+  Programs & Features registration from `HKLM` to `HKCU` since a non-elevated
+  install can't write there. Author-time-only on both backends — neither
+  `wixl`'s bundled UI nor a dependency-free NSIS script can offer this as a
+  real end-user runtime pick), and three install-experience toggles —
+  **Launch after install** (a real,
   checked-by-default "Launch \<App\> now" checkbox on both `Setup.exe`'s and
   `.msi`'s finish page, opted into here by the project author; the actual
   choice at install time is the end user's), **Desktop shortcut** (both
@@ -56,7 +63,14 @@ fixing and performance work.
   ignoring any of them.
 - macOS: bundle executable, minimum OS version, category.
 - Linux: desktop categories and comment.
-- Output directory and filename template.
+- **Hooks**: `pre_install`/`post_uninstall` — inline shell script text run on
+  the *target* machine, baked into the macOS `.pkg`/Linux `.deb`/`.rpm`
+  package itself and executed later by its own install/uninstall action.
+- Output directory, filename template, and **Post-build hook**
+  (`output.post_build_hook`) — inline shell script text run once, immediately,
+  on *this* build machine right after a successful build, with each built
+  artifact's path passed in as an environment variable — see "Build tab"
+  below for the full details.
 - **Generate ID** drafts a reverse-DNS bundle ID automatically — prefers
   `com.github.<owner>` when the project URL is a GitHub repo, otherwise derives
   one from the Publisher/Vendor's email domain or name.
@@ -78,6 +92,28 @@ fixing and performance work.
   still go through a dialog, since adding a row or picking a new path via a
   file/folder browser both need one.
 
+### File Associations tab
+
+- Table of Extension/Description pairs (e.g. `.myp` / "My App Project") the
+  installed app should be registered to open.
+  - **Windows `Setup.exe`**: plain `HKCR` registry entries (ProgID,
+    description, default icon, `shell\open\command`), author-time only.
+  - **Windows `.msi`**: a `ProgId`/`Extension`/`Verb` component per
+    association, verified against a real compiled `.msi`'s Registry table.
+  - **Linux `.deb`/`.rpm`**: installs a shared-mime-info package
+    (`/usr/share/mime/packages/<name>.xml`) and adds `MimeType=`/a
+    trailing `%f` to the `.desktop` entry, so the app appears in "Open
+    With" and receives the file path as an argument.
+  - **macOS `.pkg`**: conditional — a real document-type association needs
+    a `CFBundleDocumentTypes` entry in `Info.plist`, and this project never
+    synthesizes a whole `Info.plist` from scratch (see the macOS `.pkg`
+    note below). But when the project directory has a real `Info.plist`,
+    or its own `Info-plist.txt` placeholder (even unrenamed — configuring
+    a File Association at all is already an explicit opt-in to needing a
+    real plist), the entries are merged into a copy of it automatically.
+    With neither file present, there's nothing to merge into, so macpkg
+    logs a clear progress note instead.
+
 ### Build tab
 
 - One checkbox and live status per target: Linux `.deb`, Linux `.rpm`, macOS
@@ -87,6 +123,19 @@ fixing and performance work.
   green/red.
 - Start/Cancel with a streaming, scrollable build log. A running build is
   cancelled cleanly if the app is asked to quit mid-build.
+- **`output.post_build_hook`** (Identity tab's Output section, and
+  `hooks.pre_install`/`post_uninstall` in a new Identity tab **Hooks**
+  section): inline shell script text run once, on
+  this build machine, right after every requested target/arch has finished —
+  only when the whole build succeeded, skipped with a clear note otherwise.
+  Every successfully built artifact's path is passed in as an
+  `INSTALLERBEAR_OUTPUT_<TARGET>` environment variable (or
+  `INSTALLERBEAR_OUTPUT_<TARGET>_<ARCH>` when a target built more than one
+  arch), plus `INSTALLERBEAR_ARTIFACTS` (all of them, space-separated) and
+  `INSTALLERBEAR_APP_NAME`/`INSTALLERBEAR_VERSION`/`INSTALLERBEAR_OUTPUT_DIR`.
+  A general escape hatch for things this tool doesn't implement natively —
+  uploading to GitHub Releases, code signing, notarization — rather than a
+  dedicated feature per case.
 
 ### Packaging backends
 
@@ -125,9 +174,25 @@ fixing and performance work.
   present in the project directory, are auto-copied verbatim into
   `Contents/` (a sibling of `MacOS/`) as harmless documentation — a
   Payload entry can't reach that location, since Payload always lands
-  under `Contents/MacOS/`. macOS-only backend.
+  under `Contents/MacOS/`. Exception: when File Associations are
+  configured, `Info-plist.txt` is promoted to a real, functional
+  `Info.plist` too (with the association entries merged in), even without
+  being renamed — needing a genuine `Info.plist` at all is an inherent
+  requirement of that feature, not a policy this project relaxes lightly;
+  a project with no File Associations configured keeps the exact same
+  copied-verbatim-only-if-real, no-Info.plist-by-default behavior as
+  before. macOS-only backend.
 - **Linux `.deb` / `.rpm`** — via `nfpm` (pure Go, no `fpm`/Ruby, no
-  `rpmbuild`), so both formats build even from macOS or Windows.
+  `rpmbuild`), so both formats build even from macOS or Windows. Both
+  formats always install a real app-menu entry
+  (`/usr/share/applications/<name>.desktop`, using `Linux.DesktopCategories`/
+  `DesktopComment`) plus, when `Icons.PNG` is set, the icon it references
+  into the hicolor icon theme — unconditional, the same way both Windows
+  installers always create a Start Menu shortcut, since a `.desktop` file is
+  how a Linux app appears in the launcher at all on every major desktop
+  environment, not an optional extra. `update-desktop-database`/
+  `gtk-update-icon-cache` are refreshed best-effort on install and removal so
+  the entry/icon show up without a logout.
 - Backends run independently — one target failing doesn't stop the others — and
   the same preflight logic is shared by the GUI and the CLI's `doctor` command,
   so they never disagree about whether a tool is available.

@@ -237,3 +237,52 @@ func TestCmdImport_RerunIsIdempotentForPayload(t *testing.T) {
 		t.Errorf("ReleaseNotes.txt appears %d times in Payload after two imports, want 1", count)
 	}
 }
+
+// TestCmdImport_FileAssociationImportsAndIsIdempotentOnRerun confirms the
+// whole path end to end via the real cmdImport CLI entry point (not just
+// buildImportFields directly, which importconfig_test.go already covers):
+// a [Registry] file-association block in the source .iss is imported on
+// the first run, and running import again doesn't duplicate it - the
+// same re-run safety TestCmdImport_RerunIsIdempotentForPayload already
+// established for Payload, now covered for FileAssociations too.
+func TestCmdImport_FileAssociationImportsAndIsIdempotentOnRerun(t *testing.T) {
+	dir := t.TempDir()
+	writeSourceFixture(t, dir)
+	iss, err := os.ReadFile(filepath.Join(dir, "Inno", "app.iss"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	iss = append(iss, []byte(`[Registry]
+Root: HKCR; Subkey: ".myp"; ValueType: string; ValueName: ""; ValueData: "TestAppMyp"; Flags: uninsdeletevalue
+Root: HKCR; Subkey: "TestAppMyp"; ValueType: string; ValueName: ""; ValueData: "Test App Project"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "TestAppMyp\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\TestApp.exe"" ""%1"""
+`)...)
+	if err := os.WriteFile(filepath.Join(dir, "Inno", "app.iss"), iss, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	projectPath := filepath.Join(dir, "installerbear.yaml")
+	if code := cmdImport([]string{"-source", dir, "-p", projectPath}); code != 0 {
+		t.Fatalf("first cmdImport exit code = %d, want 0", code)
+	}
+	if code := cmdImport([]string{"-source", dir, "-p", projectPath}); code != 0 {
+		t.Fatalf("second cmdImport exit code = %d, want 0", code)
+	}
+
+	proj, err := packproject.LoadLenient(projectPath)
+	if err != nil {
+		t.Fatalf("LoadLenient: %v", err)
+	}
+	count := 0
+	for _, a := range proj.FileAssociations {
+		if a.Extension == ".myp" {
+			count++
+			if a.Description != "Test App Project" {
+				t.Errorf("Description = %q, want %q", a.Description, "Test App Project")
+			}
+		}
+	}
+	if count != 1 {
+		t.Errorf(".myp appears %d times in FileAssociations after two imports, want 1", count)
+	}
+}

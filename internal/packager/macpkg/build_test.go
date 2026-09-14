@@ -21,6 +21,7 @@ func TestBuild_InstallExperienceNotApplicableNotesOnMac(t *testing.T) {
 	proj := sampleProject(t, dir)
 	proj.Output.Dir = filepath.Join(dir, "out")
 	proj.InstallExperience = packproject.InstallExperience{LaunchAfterInstall: true, DesktopShortcut: true, AutostartAtLogin: true}
+	proj.FileAssociations = []packproject.FileAssociation{{Extension: ".myp"}}
 
 	var lines []string
 	_, err := macpkgPackager{}.Build(context.Background(), proj, packager.BuildOptions{}, func(_ packager.Target, line string) {
@@ -31,7 +32,7 @@ func TestBuild_InstallExperienceNotApplicableNotesOnMac(t *testing.T) {
 	}
 
 	joined := strings.Join(lines, "\n")
-	for _, want := range []string{"launch_after_install has no effect", "desktop_shortcut has no effect", "autostart_at_login has no effect"} {
+	for _, want := range []string{"launch_after_install has no effect", "desktop_shortcut has no effect", "autostart_at_login has no effect", "file_associations has no effect"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("expected a progress note containing %q, got:\n%s", want, joined)
 		}

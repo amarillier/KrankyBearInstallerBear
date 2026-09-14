@@ -48,7 +48,7 @@ func (d *dirNode) child(name string, used map[string]bool) *dirNode {
 // main binary's own <File> Id (needed as the LaunchApplication
 // CustomAction's FileKey when InstallExperience.LaunchAfterInstall is set).
 func buildDirTree(proj *packproject.Project, bin packproject.BinaryEntry) (root *dirNode, allComponents []string, binaryFileID string, err error) {
-	used := map[string]bool{"INSTALLDIR": true, "ProgramFiles64Folder": true, "TARGETDIR": true, "ProgramMenuFolder": true}
+	used := map[string]bool{"INSTALLDIR": true, "ProgramFiles64Folder": true, "LocalAppDataFolder": true, "TARGETDIR": true, "ProgramMenuFolder": true}
 	root = &dirNode{ID: "INSTALLDIR", Name: proj.Identity.Name}
 
 	addFile := func(dir *dirNode, name, source string) string {

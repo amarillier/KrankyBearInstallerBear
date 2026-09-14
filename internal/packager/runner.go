@@ -36,6 +36,12 @@ func targetOS(t Target) string {
 // gets one Build attempt with an empty arch, so the backend's own
 // "no <os>/<arch> binary registered" error surfaces clearly rather than
 // the target silently vanishing from the results.
+//
+// Once every target/arch has been attempted, proj.Output.PostBuildHook (if
+// set) runs once against the full results slice — see runPostBuildHook's
+// own doc comment. This is the one orchestration point both the CLI and
+// the GUI already share, so neither caller needs to remember a separate
+// step to get it.
 func Run(ctx context.Context, proj *packproject.Project, pkgrs []Packager, onEvent ProgressFunc) []BuildResult {
 	var results []BuildResult
 
@@ -73,6 +79,8 @@ func Run(ctx context.Context, proj *packproject.Project, pkgrs []Packager, onEve
 			results = append(results, BuildResult{Target: target, Arch: arch, OutputPath: outPath, Err: err})
 		}
 	}
+
+	runPostBuildHook(ctx, proj, results, onEvent)
 
 	return results
 }

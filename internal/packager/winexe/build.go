@@ -73,6 +73,12 @@ func (p winexePackager) Build(ctx context.Context, proj *packproject.Project, op
 		return "", fmt.Errorf("winexe: %w", err)
 	}
 
+	perUser := proj.Windows.InstallScope == packproject.InstallScopeCurrentUser
+	uninstallRegRoot := "HKLM"
+	if perUser {
+		uninstallRegRoot = "HKCU"
+	}
+
 	data := nsiData{
 		AppName:            proj.Identity.Name,
 		AppVersion:         proj.Identity.Version,
@@ -84,6 +90,15 @@ func (p winexePackager) Build(ctx context.Context, proj *packproject.Project, op
 		LaunchAfterInstall: proj.InstallExperience.LaunchAfterInstall,
 		DesktopShortcut:    proj.InstallExperience.DesktopShortcut,
 		AutostartAtLogin:   proj.InstallExperience.AutostartAtLogin,
+		PerUser:            perUser,
+		UninstallRegRoot:   uninstallRegRoot,
+	}
+	for _, assoc := range proj.FileAssociations {
+		data.FileAssociations = append(data.FileAssociations, nsiFileAssociation{
+			Extension:   assoc.Extension,
+			ProgID:      packager.FileAssociationProgID(proj.Identity.Name, assoc.Extension),
+			Description: packager.FileAssociationDescription(assoc.Description, proj.Identity.Name),
+		})
 	}
 	if proj.Identity.Icons.ICO != "" {
 		data.IconFile = proj.ResolvePath(proj.Identity.Icons.ICO)

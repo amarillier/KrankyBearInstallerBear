@@ -151,6 +151,100 @@ func TestEditor_RefreshIdentityTabRestoresAutostartAtLoginCheck(t *testing.T) {
 	}
 }
 
+func TestEditor_InstallScopeSelectWritesIntoProject(t *testing.T) {
+	e := newTestEditor(t)
+
+	e.installScopeSelect.SetSelected(installScopeLabelCurrentUser)
+	if e.proj.Windows.InstallScope != packproject.InstallScopeCurrentUser {
+		t.Errorf("Windows.InstallScope = %q, want %q", e.proj.Windows.InstallScope, packproject.InstallScopeCurrentUser)
+	}
+
+	e.installScopeSelect.SetSelected(installScopeLabelAllUsers)
+	if e.proj.Windows.InstallScope != packproject.InstallScopeAllUsers {
+		t.Errorf("Windows.InstallScope = %q, want %q", e.proj.Windows.InstallScope, packproject.InstallScopeAllUsers)
+	}
+}
+
+// TestEditor_RefreshIdentityTabRestoresInstallScope is a regression-shaped
+// test for the same class of bug New/Open Project has hit before on this
+// tab (see the PNG icon thumbnail's and InstallExperience checks' own
+// tests): refreshIdentityTab must push a loaded project's InstallScope
+// into the Select, not just leave it at whatever an earlier project left
+// behind.
+func TestEditor_RefreshIdentityTabRestoresInstallScope(t *testing.T) {
+	e := newTestEditor(t)
+	e.proj.Windows.InstallScope = packproject.InstallScopeCurrentUser
+
+	e.refreshIdentityTab()
+
+	if e.installScopeSelect.Selected != installScopeLabelCurrentUser {
+		t.Errorf("installScopeSelect.Selected = %q, want %q", e.installScopeSelect.Selected, installScopeLabelCurrentUser)
+	}
+}
+
+// TestEditor_RefreshIdentityTabDefaultsInstallScopeToAllUsersWhenBlank
+// covers a project loaded before this field existed (install_scope ""),
+// or one that never went through packproject.Defaults() (e.g. a
+// brand-new in-memory Project in a test) - it must read as "All users",
+// the pre-existing behavior, not some third blank Select state.
+func TestEditor_RefreshIdentityTabDefaultsInstallScopeToAllUsersWhenBlank(t *testing.T) {
+	e := newTestEditor(t)
+	e.proj.Windows.InstallScope = ""
+
+	e.refreshIdentityTab()
+
+	if e.installScopeSelect.Selected != installScopeLabelAllUsers {
+		t.Errorf("installScopeSelect.Selected = %q, want %q", e.installScopeSelect.Selected, installScopeLabelAllUsers)
+	}
+}
+
+func TestEditor_HooksEntriesWriteIntoProject(t *testing.T) {
+	e := newTestEditor(t)
+
+	e.preInstallHookEntry.SetText("echo pre-install")
+	if e.proj.Hooks.PreInstall != "echo pre-install" {
+		t.Errorf("Hooks.PreInstall = %q, want %q", e.proj.Hooks.PreInstall, "echo pre-install")
+	}
+
+	e.postUninstallHookEntry.SetText("echo post-uninstall")
+	if e.proj.Hooks.PostUninstall != "echo post-uninstall" {
+		t.Errorf("Hooks.PostUninstall = %q, want %q", e.proj.Hooks.PostUninstall, "echo post-uninstall")
+	}
+}
+
+func TestEditor_PostBuildHookEntryWritesIntoProject(t *testing.T) {
+	e := newTestEditor(t)
+
+	e.postBuildHookEntry.SetText("echo post-build")
+	if e.proj.Output.PostBuildHook != "echo post-build" {
+		t.Errorf("Output.PostBuildHook = %q, want %q", e.proj.Output.PostBuildHook, "echo post-build")
+	}
+}
+
+// TestEditor_RefreshIdentityTabRestoresHooksAndPostBuildHook is a
+// regression-shaped test for the same class of bug New/Open Project has
+// hit before on this tab (see the Install Scope/InstallExperience checks'
+// own tests): refreshIdentityTab must push a loaded project's Hooks and
+// Output.PostBuildHook text into their entries, not just leave them at
+// whatever an earlier project left behind.
+func TestEditor_RefreshIdentityTabRestoresHooksAndPostBuildHook(t *testing.T) {
+	e := newTestEditor(t)
+	e.proj.Hooks = packproject.Hooks{PreInstall: "echo pre", PostUninstall: "echo post"}
+	e.proj.Output.PostBuildHook = "echo build"
+
+	e.refreshIdentityTab()
+
+	if e.preInstallHookEntry.Text != "echo pre" {
+		t.Errorf("preInstallHookEntry.Text = %q, want %q", e.preInstallHookEntry.Text, "echo pre")
+	}
+	if e.postUninstallHookEntry.Text != "echo post" {
+		t.Errorf("postUninstallHookEntry.Text = %q, want %q", e.postUninstallHookEntry.Text, "echo post")
+	}
+	if e.postBuildHookEntry.Text != "echo build" {
+		t.Errorf("postBuildHookEntry.Text = %q, want %q", e.postBuildHookEntry.Text, "echo build")
+	}
+}
+
 func TestEditor_GenerateIDButtonFillsIDField(t *testing.T) {
 	e := newTestEditor(t)
 	e.nameEntry.SetText("Test App")

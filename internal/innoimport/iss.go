@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strings"
 
+	"installerbear/internal/packproject"
 	"installerbear/internal/projectscan"
 )
 
@@ -32,11 +33,19 @@ type ISSResult struct {
 	WindowsBinary string
 
 	Payload []projectscan.PayloadCandidate
+	// FileAssociations is every file-type association ParseISS recognized
+	// in [Registry] - see parseFileAssociations' own doc comment for
+	// exactly what shape is understood (both the classic direct HKCR\.ext
+	// form and the modern Inno-wizard-generated HKA\Software\Classes\...\
+	// OpenWithProgids form - confirmed against this very repo's own real
+	// Inno/KrankyBearInstallerBear.iss fixture, which uses the latter).
+	FileAssociations []packproject.FileAssociation
 	// Skipped lists, in human-readable form, everything the parser noticed
 	// but didn't import: unsupported [Files] wildcard forms, DestDir
-	// tokens other than "{app}", and a count of lines in sections this
-	// importer doesn't understand at all ([Registry]/[Icons]/[Tasks]/
-	// [Run]/[UninstallRun]/[UninstallDelete]).
+	// tokens other than "{app}", [Registry] lines that don't match a
+	// recognized file-association shape, and a count of lines in sections
+	// this importer doesn't understand at all ([Icons]/[Tasks]/[Run]/
+	// [UninstallRun]/[UninstallDelete]).
 	Skipped []string
 }
 
@@ -69,10 +78,14 @@ var (
 //     recursesubdirs, or an extension filter like "*.dll") isn't
 //     representable by a single PayloadEntry and is reported in Skipped
 //     instead of guessed at.
+//   - [Registry] lines that form a recognizable file-type association —
+//     see parseFileAssociations' own doc comment for the two shapes
+//     understood. Any [Registry] line that doesn't fit either shape is
+//     reported in Skipped, not silently dropped.
 //
-// Does not handle [Registry], [Icons], [Tasks], [Run], [UninstallRun], or
+// Does not handle [Icons], [Tasks], [Run], [UninstallRun], or
 // [UninstallDelete] at all — packproject has no equivalent for any of them
-// yet (file associations, desktop-icon opt-in, post-install launch, ...).
+// yet (desktop-icon opt-in, post-install launch, custom wizard pages, ...).
 // Lines in those sections are counted and reported in Skipped, never
 // silently dropped without a trace.
 func ParseISS(issPath, baseDir string) (ISSResult, error) {
@@ -94,6 +107,7 @@ func ParseISS(issPath, baseDir string) (ISSResult, error) {
 	defines := map[string]string{}
 	setup := map[string]string{}
 	var fileLines []string
+	var registryLines []string
 	otherSectionLines := 0
 
 	section := ""
@@ -119,6 +133,8 @@ func ParseISS(issPath, baseDir string) (ISSResult, error) {
 			}
 		case "Files":
 			fileLines = append(fileLines, trimmed)
+		case "Registry":
+			registryLines = append(registryLines, trimmed)
 		case "":
 			// preamble (the #define block, comments) — nothing to record
 		default:
@@ -166,9 +182,17 @@ func ParseISS(issPath, baseDir string) (ISSResult, error) {
 		res.addFileLine(line, issDir, baseDir, expand)
 	}
 
+	assocs, unrecognizedRegistryLines := parseFileAssociations(registryLines, expand)
+	res.FileAssociations = assocs
+	if unrecognizedRegistryLines > 0 {
+		res.Skipped = append(res.Skipped, fmt.Sprintf(
+			"%d line(s) in [Registry] were not recognized as a file association and were not imported",
+			unrecognizedRegistryLines))
+	}
+
 	if otherSectionLines > 0 {
 		res.Skipped = append(res.Skipped, fmt.Sprintf(
-			"%d line(s) in [Registry]/[Icons]/[Tasks]/[Run]/[UninstallRun]/[UninstallDelete] were not imported (no matching InstallerBear feature yet)",
+			"%d line(s) in [Icons]/[Tasks]/[Run]/[UninstallRun]/[UninstallDelete] were not imported (no matching InstallerBear feature yet)",
 			otherSectionLines))
 	}
 

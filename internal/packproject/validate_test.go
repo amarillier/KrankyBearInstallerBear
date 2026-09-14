@@ -70,6 +70,26 @@ func TestValidate_WindowsExeNameMatchingBinaryIsFine(t *testing.T) {
 	}
 }
 
+func TestValidate_InstallScopeUnknownValueRejected(t *testing.T) {
+	p := validProject()
+	p.Windows.InstallScope = "everyone-please"
+
+	err := p.Validate("")
+	if err == nil || !strings.Contains(err.Error(), `windows.install_scope "everyone-please" is not valid`) {
+		t.Fatalf("expected an install_scope validation error, got %v", err)
+	}
+}
+
+func TestValidate_InstallScopeKnownValuesPass(t *testing.T) {
+	for _, scope := range []string{"", InstallScopeAllUsers, InstallScopeCurrentUser} {
+		p := validProject()
+		p.Windows.InstallScope = scope
+		if err := p.Validate(""); err != nil {
+			t.Errorf("install_scope %q: expected no error, got %v", scope, err)
+		}
+	}
+}
+
 func TestValidate_WindowsGUIDRequiredOnlyForWindowsTargets(t *testing.T) {
 	p := validProject() // deb/rpm only, no GUID
 	if err := p.Validate(""); err != nil {
@@ -210,5 +230,46 @@ func TestValidate_PayloadValidSourcePasses(t *testing.T) {
 	p.Payload = []PayloadEntry{{Source: "a.txt", Dest: "a.txt"}}
 	if err := p.Validate(dir); err != nil {
 		t.Fatalf("valid payload should pass: %v", err)
+	}
+}
+
+func TestValidate_FileAssociationValidPasses(t *testing.T) {
+	p := validProject()
+	p.FileAssociations = []FileAssociation{{Extension: ".myp", Description: "My App Project"}}
+	if err := p.Validate(""); err != nil {
+		t.Fatalf("valid file association should pass: %v", err)
+	}
+}
+
+func TestValidate_FileAssociationRequiresLeadingDot(t *testing.T) {
+	p := validProject()
+	p.FileAssociations = []FileAssociation{{Extension: "myp"}}
+
+	err := p.Validate("")
+	if err == nil || !strings.Contains(err.Error(), `must start with a dot`) {
+		t.Fatalf("expected a leading-dot error, got %v", err)
+	}
+}
+
+func TestValidate_FileAssociationEmptyExtensionRejected(t *testing.T) {
+	p := validProject()
+	p.FileAssociations = []FileAssociation{{Description: "no extension set"}}
+
+	err := p.Validate("")
+	if err == nil || !strings.Contains(err.Error(), "extension is required") {
+		t.Fatalf("expected an extension-required error, got %v", err)
+	}
+}
+
+func TestValidate_FileAssociationDuplicateExtensionRejected(t *testing.T) {
+	p := validProject()
+	p.FileAssociations = []FileAssociation{
+		{Extension: ".myp", Description: "First"},
+		{Extension: ".MYP", Description: "Second, different case"},
+	}
+
+	err := p.Validate("")
+	if err == nil || !strings.Contains(err.Error(), "registered more than once") {
+		t.Fatalf("expected a duplicate-extension error (case-insensitive), got %v", err)
 	}
 }

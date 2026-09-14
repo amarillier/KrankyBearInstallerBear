@@ -41,6 +41,7 @@ REUSABLE-DIALOGS-GUIDE.md
 CLAUDE.md
 installerbear
 *.yaml
+github/*
 
 # get-mesa.sh downloads/extracts here — never commit the archive or the DLLs it stages
 mesa-staging/
@@ -50,6 +51,7 @@ mesa-staging/
 !Inno/*/
 !winres/*
 !get-mesa.sh
+!setver.sh
 !sample-installerbear.yaml
 !installerbear.yaml
 */.DS_Store

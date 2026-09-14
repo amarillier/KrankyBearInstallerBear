@@ -45,13 +45,18 @@ script or CI pipeline - run with -help or -? for CLI usage.
 FEATURES:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 • Identity tab - name, bundle ID, version, publisher, vendor, URL, description,
-  license, icons, plus Windows/macOS/Linux-specific settings and output folder.
+  license, icons, plus Windows/macOS/Linux-specific settings, install/build
+  hooks, and output folder.
 • Binaries tab - one file picker per OS x architecture. Fill in more than one
   architecture for an OS to get multi-arch output automatically. "Scan
   folder..." can guess several of these at once from filename conventions.
 • Payload tab - bundle extra files/folders alongside the binary, with
   recursive copy and OS filtering. "Scan folder..." proposes entries from a
   directory for you to review before anything is added.
+• File Associations tab - register the app to open file extensions
+  (Windows registry entries / Windows .msi ProgId / Linux shared-mime-info
+  + .desktop MimeType=). Works on macOS too when the project has a real
+  Info.plist or Info-plist.txt to add CFBundleDocumentTypes to.
 • Build tab - checkboxes per target with live preflight status (is the tool
   installed, is the target supported here), Re-check Tools, Start/Cancel, and
   a streaming build log.
@@ -81,6 +86,18 @@ SMART FEATURES:
   the File menu.
 ✨ Tray "Show/Hide All Windows" brings back or hides the whole window stack
   (main window plus any open About/Help/Update window) in one click.
+✨ New Sample Project... (File menu + tray) writes a real, fully-featured
+  example installerbear.yaml to a location you pick and opens it - a
+  working starting point instead of a blank project.
+✨ Release Notes viewer (Help menu + tray): opens the installed release
+  notes in their own window - no need to go hunting for the file.
+✨ Hooks (Identity tab): Pre-install/Post-uninstall run on the TARGET
+  machine, baked into the macOS .pkg/Linux .deb-.rpm package itself.
+  Post-build hook (Output section) instead runs immediately on THIS build
+  machine right after a successful build, with the built artifacts' paths
+  passed in as INSTALLERBEAR_OUTPUT_<TARGET> environment variables - a
+  general escape hatch for uploading to GitHub Releases, code signing,
+  notarization, and anything else this tool doesn't do natively.
 
 KEYBOARD SHORTCUTS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -92,17 +109,22 @@ No app-specific shortcuts yet - use the File menu for New/Open/Save/Save As.
 
 KNOWN LIMITATIONS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• No code signing for any output format yet.
-• No file associations or custom installer wizard pages.
-• No unsaved-changes confirmation on New/Open Project yet.
-• Payload entries are edited via a dialog, not inline in the table.
+• No code signing for any output format yet (a post-build hook can call
+  your own signing/notarization tools once you have certs, though).
+• No custom installer wizard pages. File associations are supported on
+  Windows/Linux always, and on macOS when a real Info.plist or
+  Info-plist.txt exists to add CFBundleDocumentTypes to - see the File
+  Associations tab.
+• Windows ARM64 .msi isn't possible - wixl (the tool this project uses to
+  build .msi) has no ARM64 support at all. Setup.exe should already work
+  for it, untested on real ARM64 Windows hardware.
 
 MORE INFORMATION:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 For documentation, bug reports, or feature requests:
 📦 GitHub: https://github.com/amarillier/KrankyBearInstallerBear
 📄 License: https://github.com/amarillier/KrankyBearInstallerBear/blob/main/LICENSE
-📝 Release Notes: Check "Help → Check for Updates"
+📝 Release Notes: Help → Release Notes
 
 FREE SOFTWARE - Use anywhere, anytime, any purpose!
 No registration, no tracking, no phone-home (except manual update checks).

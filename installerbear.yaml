@@ -1,7 +1,7 @@
 identity:
     name: KrankyBearInstallerBear
     id: com.github.amarillier.KrankyBearInstallerBear
-    version: 0.3.0
+    version: 0.5.0
     publisher: Allan Marillier, 2026-
     vendor: Allan Marillier
     url: https://github.com/amarillier/KrankyBearInstallerBear
@@ -50,6 +50,8 @@ payload:
       dest: mesa-fallback
       os:
         - windows
+    - source: installerbear.yaml
+      dest: installerbear.yaml
 install:
     windows: $PROGRAMFILES64\KrankyBearInstallerBear
     macos: /Applications/KrankyBearInstallerBear.app
@@ -60,8 +62,12 @@ install_experience:
 windows:
     upgrade_guid: '{55F17CC0-57CC-43E9-A0A4-84C4AAECADE8}'
     exe_name: KrankyBearInstallerBear.exe
+    install_scope: all_users
 macos:
     bundle_executable: KrankyBear-InstallerBear.exe
+linux:
+    desktop_categories: Development
+    desktop_comment: Packaging application
 targets:
     - deb
     - rpm
@@ -72,3 +78,6 @@ output:
     dir: ./bearinstallers
     filename_template: '{{.Identity.Name}}_{{.Identity.Version}}_{{.Arch}}'
     clean_old_versions: true
+file_associations:
+    - extension: .yaml
+      description: Yaml configs for InstallerBear

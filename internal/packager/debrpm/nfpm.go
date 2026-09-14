@@ -71,7 +71,7 @@ func (f format) Build(ctx context.Context, proj *packproject.Project, opts packa
 			progress(f.name, "note: install_experience.launch_after_install has no effect for "+string(f.name)+" - no installer-time \"launch it now\" convention exists on Linux, and auto-launching a GUI app from a postinstall script could break a headless/CI install")
 		}
 		if proj.InstallExperience.DesktopShortcut {
-			progress(f.name, "note: install_experience.desktop_shortcut has no effect for "+string(f.name)+" yet - real Linux .desktop-file generation is tracked separately, a bigger feature of its own")
+			progress(f.name, "note: install_experience.desktop_shortcut has no effect for "+string(f.name)+" - a real app-menu .desktop entry is always installed regardless of this setting (see below), since that's how a Linux app appears in the launcher at all, not an optional extra the way a literal desktop icon is on Windows")
 		}
 		if proj.InstallExperience.AutostartAtLogin {
 			progress(f.name, "note: install_experience.autostart_at_login has no effect for "+string(f.name)+" yet - Windows-only for now (a real equivalent exists via an XDG autostart .desktop entry, tracked separately if this comes up)")
@@ -196,6 +196,18 @@ func buildInfo(proj *packproject.Project, arch string, bin packproject.BinaryEnt
 		}
 	}
 
+	// Always installs a real app-menu .desktop entry (+ PNG icon, if set) -
+	// see desktopEntry's own comment on why this isn't gated behind
+	// InstallExperience.DesktopShortcut the way the Windows Desktop
+	// shortcut toggle is.
+	desktopContents, desktopCleanup, err := desktopIntegrationContents(proj, installDir, binName)
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	cleanups = append(cleanups, desktopCleanup)
+	contents = append(contents, desktopContents...)
+
 	preInstall, c, err := writeHookScript(proj.Hooks.PreInstall)
 	if err != nil {
 		cleanup()
@@ -205,7 +217,29 @@ func buildInfo(proj *packproject.Project, arch string, bin packproject.BinaryEnt
 		cleanups = append(cleanups, c)
 	}
 
-	postRemove, c, err := writeHookScript(proj.Hooks.PostUninstall)
+	// PostInstall isn't used by any Hooks field today, so this is always
+	// exactly the desktop/icon/mime-cache refresh - best-effort (|| true),
+	// so a minimal/headless box missing these tools doesn't fail the install.
+	hasIcon := proj.Identity.Icons.PNG != ""
+	hasFileAssociations := len(proj.FileAssociations) > 0
+	postInstall, c, err := writeHookScript(desktopIntegrationRefreshScript(hasIcon, hasFileAssociations))
+	if err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("post_install (desktop integration refresh): %w", err)
+	}
+	if c != nil {
+		cleanups = append(cleanups, c)
+	}
+
+	// PostRemove already carries the project's own Hooks.PostUninstall, so
+	// the same refresh commands are appended after it rather than
+	// replacing it - both run in the same script, user hook first.
+	postRemoveScript := strings.TrimRight(proj.Hooks.PostUninstall, "\n")
+	if postRemoveScript != "" {
+		postRemoveScript += "\n"
+	}
+	postRemoveScript += desktopIntegrationRefreshScript(hasIcon, hasFileAssociations)
+	postRemove, c, err := writeHookScript(postRemoveScript)
 	if err != nil {
 		cleanup()
 		return nil, nil, fmt.Errorf("post_uninstall hook: %w", err)
@@ -226,8 +260,9 @@ func buildInfo(proj *packproject.Project, arch string, bin packproject.BinaryEnt
 		Overridables: nfpm.Overridables{
 			Contents: contents,
 			Scripts: nfpm.Scripts{
-				PreInstall: preInstall,
-				PostRemove: postRemove,
+				PreInstall:  preInstall,
+				PostInstall: postInstall,
+				PostRemove:  postRemove,
 			},
 		},
 	})

@@ -96,6 +96,19 @@ func showReleaseNotes(a fyne.App) {
 			loadingBar.Stop() // halts its animation goroutine before it's dropped
 			scroll.Content = richText
 			scroll.Refresh()
+			// scroll.Refresh() alone only recomputes the widget's own layout
+			// (confirmed by reading internal/widget/scroller.go's renderer -
+			// it re-associates Objects()[0] and calls Layout(), neither of
+			// which touches the canvas's own dirty flag). The actual repaint
+			// trigger is the canvas's own Refresh(obj), which queues the
+			// object and calls SetDirty() - the exact thing the 60Hz paint
+			// loop's CheckDirtyAndClear() gates on. Without this, the swap
+			// happens correctly in memory but never gets painted until
+			// something else incidentally marks the canvas dirty (closing
+			// and reopening the window, or another Show()/RequestFocus() -
+			// both confirmed via real testing to "fix" it, which is what
+			// gave this away) - a real bug, not a hypothetical one.
+			releaseNotesWindow.Canvas().Refresh(scroll)
 		})
 	}()
 }

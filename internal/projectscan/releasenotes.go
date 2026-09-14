@@ -20,21 +20,27 @@ import (
 var releaseNotesNames = []string{"ReleaseNotes.md", "ReleaseNotes.txt", "RELEASENOTES.md", "RELEASENOTES.txt"}
 
 // versionLineRE matches this template's "Version X.Y.Z - <date>" heading
-// (see ReleaseNotes.md itself) and captures just the version token.
-var versionLineRE = regexp.MustCompile(`(?i)^Version\s+(\S+)`)
+// (see ReleaseNotes.md itself) and captures just the version token. The
+// optional leading "#*" tolerates a real Markdown "## Version ..." heading
+// (this project's own ReleaseNotes.md convention as of 0.5.0) as well as
+// the older plain-text "Version ..." line a scanned project's .txt-based
+// release notes may still use.
+var versionLineRE = regexp.MustCompile(`(?i)^#*\s*Version\s+(\S+)`)
 
 // parseReleaseNotes best-effort-extracts an app Name, current Version, and
 // Description from a ReleaseNotes file in dir's root, following this
-// template's own ReleaseNotes.md/.txt convention (plain line-based text
-// either way - this parser doesn't care about real Markdown syntax):
+// template's own ReleaseNotes.md/.txt convention - plain line-based text,
+// tolerant of an optional Markdown "#"-style heading marker on the two
+// lines that carry one (this project's own ReleaseNotes.md switched to
+// real Markdown headings as of 0.5.0; a scanned project's older plain-text
+// convention, with no "#" at all, still parses exactly the same way):
 //
-//	Release notes
+//	# Release notes
 //	<Name>: <description, possibly wrapped across a couple of lines>
 //
 //	...
 //
-//	Version <X.Y.Z> - <date>
-//	━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//	## Version <X.Y.Z> - <date>
 //	...
 //
 // Any deviation from this shape just leaves the corresponding field "" —
@@ -62,14 +68,16 @@ func parseReleaseNotes(dir string) (name, version, description string) {
 	return name, version, description
 }
 
-// parseIntro reads the leading non-blank block of lines (skipping a bare
-// "Release notes" heading, if present) and splits its first line on the
-// first ": " into name/description, appending any further lines in the
+// parseIntro reads the leading non-blank block of lines (skipping a
+// "Release notes" heading, if present - either a bare line, per the old
+// plain-text convention, or a real Markdown "# Release Notes" heading, per
+// this project's own convention as of 0.5.0) and splits its first line on
+// the first ": " into name/description, appending any further lines in the
 // same block to description. Returns "", "" if the block doesn't start
 // with a "<Name>: " line at all.
 func parseIntro(lines []string) (name, description string) {
 	i := 0
-	if i < len(lines) && strings.EqualFold(lines[i], "release notes") {
+	if i < len(lines) && strings.EqualFold(stripHeadingMarker(lines[i]), "release notes") {
 		i++
 	}
 	for i < len(lines) && lines[i] == "" {
@@ -90,6 +98,15 @@ func parseIntro(lines []string) (name, description string) {
 	}
 	descParts := append([]string{rest}, block[1:]...)
 	return head, strings.Join(descParts, " ")
+}
+
+// stripHeadingMarker strips a leading Markdown heading marker ("#", "##",
+// ...) and any surrounding whitespace, so "# Release Notes" and "Release
+// notes" both reduce to the same comparable text - lets the old
+// plain-text convention and this project's own real Markdown convention
+// share one heading check instead of needing two.
+func stripHeadingMarker(s string) string {
+	return strings.TrimSpace(strings.TrimLeft(s, "#"))
 }
 
 // parseVersion returns the version token from the first "Version ..." line

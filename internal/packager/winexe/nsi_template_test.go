@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -25,6 +26,7 @@ func sampleNSIData() nsiData {
 			{DestDir: `assets\images`, Source: `C:\src\assets\images`, Recursive: true},
 			{DestDir: "", Source: `C:\src\ReleaseNotes.txt`},
 		},
+		UninstallRegRoot: "HKLM", // matches InstallScopeAllUsers, this template's default scope
 	}
 }
 
@@ -317,5 +319,107 @@ func TestNSITemplate_RegistersWithProgramsAndFeatures(t *testing.T) {
 		if !bytes.Contains([]byte(out), []byte(want)) {
 			t.Errorf("expected %q in output (Programs & Features registration is unconditional):\n%s", want, out)
 		}
+	}
+}
+
+// TestNSITemplate_PerUserInstallScope covers InstallScope ==
+// InstallScopeCurrentUser: no elevation requested, Programs & Features
+// registration moves to HKCU (a non-elevated process can't write HKLM),
+// and no SetShellVarContext override - NSIS's own default context
+// (per-user) is already what's wanted.
+func TestNSITemplate_PerUserInstallScope(t *testing.T) {
+	data := sampleNSIData()
+	data.PerUser = true
+	data.UninstallRegRoot = "HKCU"
+
+	var buf bytes.Buffer
+	if err := nsiTemplate.Execute(&buf, data); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	out := buf.String()
+
+	if !bytes.Contains([]byte(out), []byte("RequestExecutionLevel user")) {
+		t.Errorf("expected RequestExecutionLevel user for a per-user install:\n%s", out)
+	}
+	if bytes.Contains([]byte(out), []byte("RequestExecutionLevel admin")) {
+		t.Errorf("expected no RequestExecutionLevel admin for a per-user install:\n%s", out)
+	}
+	if bytes.Contains([]byte(out), []byte("SetShellVarContext all")) {
+		t.Errorf("expected no SetShellVarContext all for a per-user install (NSIS's own default context is already per-user):\n%s", out)
+	}
+
+	const uninstallKey = `Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}`
+	if !bytes.Contains([]byte(out), []byte(`WriteRegStr HKCU "`+uninstallKey+`" "DisplayName" "${APP_NAME}"`)) {
+		t.Errorf("expected Programs & Features registration under HKCU for a per-user install:\n%s", out)
+	}
+	if bytes.Contains([]byte(out), []byte(`WriteRegStr HKLM "`+uninstallKey)) {
+		t.Errorf("expected no HKLM Programs & Features registration for a per-user install:\n%s", out)
+	}
+	if !bytes.Contains([]byte(out), []byte(`DeleteRegKey HKCU "`+uninstallKey+`"`)) {
+		t.Errorf("expected the uninstaller to clean up the HKCU Uninstall key for a per-user install:\n%s", out)
+	}
+}
+
+// TestNSITemplate_AllUsersInstallScope covers the InstallScopeAllUsers
+// default explicitly: elevation requested, and SetShellVarContext all
+// present in both the install and uninstall Sections so shortcuts land in
+// (and get cleaned up from) the all-users Start Menu/Desktop, not
+// whichever per-user folder NSIS would otherwise default to even under an
+// elevated install.
+func TestNSITemplate_AllUsersInstallScope(t *testing.T) {
+	var buf bytes.Buffer
+	if err := nsiTemplate.Execute(&buf, sampleNSIData()); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	out := buf.String()
+
+	if !bytes.Contains([]byte(out), []byte("RequestExecutionLevel admin")) {
+		t.Errorf("expected RequestExecutionLevel admin for the default all-users install:\n%s", out)
+	}
+	if strings.Count(out, "SetShellVarContext all") != 2 {
+		t.Errorf("expected SetShellVarContext all exactly twice (install + uninstall Sections), got %d:\n%s",
+			strings.Count(out, "SetShellVarContext all"), out)
+	}
+}
+
+// TestNSITemplate_FileAssociationsRegistersAndCleansUp covers the whole
+// association lifecycle: written unconditionally (no author toggle, no
+// end-user checkbox) in the main Section, always to HKCR regardless of
+// PerUser (see nsiFileAssociation's own doc comment on why - Windows'
+// registry virtualization handles the elevation split, not this template),
+// and cleaned up again in the Uninstall section.
+func TestNSITemplate_FileAssociationsRegistersAndCleansUp(t *testing.T) {
+	data := sampleNSIData()
+	data.FileAssociations = []nsiFileAssociation{
+		{Extension: ".myp", ProgID: "testapp.myp", Description: "Test App Project"},
+	}
+
+	var buf bytes.Buffer
+	if err := nsiTemplate.Execute(&buf, data); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	out := buf.String()
+
+	for _, want := range []string{
+		`WriteRegStr HKCR ".myp" "" "testapp.myp"`,
+		`WriteRegStr HKCR "testapp.myp" "" "Test App Project"`,
+		`WriteRegStr HKCR "testapp.myp\DefaultIcon" "" "$INSTDIR\${APP_EXE},0"`,
+		`WriteRegStr HKCR "testapp.myp\shell\open\command" "" '"$INSTDIR\${APP_EXE}" "%1"'`,
+		`DeleteRegKey HKCR ".myp"`,
+		`DeleteRegKey HKCR "testapp.myp"`,
+	} {
+		if !bytes.Contains([]byte(out), []byte(want)) {
+			t.Errorf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
+func TestNSITemplate_NoFileAssociationsMeansNoRegistryEntries(t *testing.T) {
+	var buf bytes.Buffer
+	if err := nsiTemplate.Execute(&buf, sampleNSIData()); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if bytes.Contains(buf.Bytes(), []byte("DefaultIcon")) || bytes.Contains(buf.Bytes(), []byte(`shell\open\command`)) {
+		t.Errorf("expected no file-association registry entries when FileAssociations is empty:\n%s", buf.String())
 	}
 }

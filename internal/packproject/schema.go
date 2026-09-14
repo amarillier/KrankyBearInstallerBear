@@ -16,6 +16,12 @@ type Project struct {
 	Linux             LinuxOptions      `yaml:"linux,omitempty"`
 	Targets           []string          `yaml:"targets"`
 	Output            OutputOptions     `yaml:"output,omitempty"`
+	// FileAssociations registers a file extension with this app - "double-
+	// click a .foo file, it opens in this app" - see FileAssociation's own
+	// doc comment for exactly what each backend does with one, including
+	// macOS's own conditional support (needs a real Info.plist to exist,
+	// or Info-plist.txt to promote to one).
+	FileAssociations []FileAssociation `yaml:"file_associations,omitempty"`
 
 	// BaseDir is the directory the project file lives in. Every backend
 	// resolves relative Source/LicenseFile/icon paths against it. Set by
@@ -77,6 +83,62 @@ type PayloadEntry struct {
 	// entry — the analogue of Inno's [Files] "Excludes:" attribute. Ignored
 	// when Recursive is false.
 	Excludes []string `yaml:"excludes,omitempty"`
+}
+
+// FileAssociation registers one file extension with this app: double-
+// clicking a matching file opens it with this app's own binary, passed
+// the file's path as its first argument (Windows: `"<exe>" "%1"`; Linux:
+// `Exec=... %f`). Deliberately just two fields, not a fully generic
+// arbitrary-registry-entry escape hatch - covers the common "my app has
+// its own document/project file type" case simply, matching this
+// project's existing preference for structured fields over free-form
+// config wherever the common case is well-defined (InstallExperience's
+// own doc comment makes the same argument for install-time toggles).
+//
+// Windows (both winexe/winmsi): writes to HKCR - Windows' own registry
+// virtualization automatically redirects an unprivileged process's HKCR
+// writes to HKCU\Software\Classes, so this works the same way regardless
+// of WindowsOptions.InstallScope, with no extra code needed for that
+// split (a well-documented OS behavior, not verified against real
+// hardware from this dev machine the way the rest of this project's wixl/
+// NSIS findings have been empirically confirmed - flagged here
+// deliberately, not silently assumed). winmsi implements this via WiX's
+// native <ProgId>/<Extension>/<Verb> elements (confirmed to compile to
+// real Registry-table rows via a real compiled test .msi - wixl crashes
+// if <Extension> is nested directly under <File> instead, a real,
+// non-obvious gotcha); winexe writes the same registry keys by hand,
+// since NSIS has no built-in file-association directive.
+//
+// Linux (deb/rpm): adds a MimeType= entry to the .desktop file this
+// project already generates unconditionally (see debrpm's own
+// desktopfile.go) plus a shared-mime-info XML package
+// (/usr/share/mime/packages/<name>.xml, refreshed via
+// update-mime-database the same way update-desktop-database already
+// refreshes the .desktop entry itself).
+//
+// macOS: conditionally supported. Real file-type association there needs
+// CFBundleDocumentTypes in a genuine Info.plist, and this project
+// deliberately never synthesizes a whole Info.plist from scratch (matching
+// Allan's own established package.sh convention - see macpkg's own doc
+// comment); but when the project directory has a real Info.plist, or its
+// own Info-plist.txt placeholder (even without renaming it - configuring
+// FileAssociations at all is already an explicit opt-in to needing a real
+// plist), macpkg merges a CFBundleDocumentTypes array into a copy of it
+// rather than leaving the feature unreachable there. A hand-written
+// CFBundleDocumentTypes already present in that file is always left alone,
+// never fought or duplicated. With neither file present, there's genuinely
+// nowhere to write this without synthesizing an Info.plist outright, so
+// macpkg logs a clear note instead of silently ignoring the setting,
+// matching every other platform-specific InstallExperience-style setting.
+type FileAssociation struct {
+	// Extension includes the leading dot, e.g. ".myp" - matching how a
+	// file extension actually reads, rather than making every author
+	// remember whether to include it.
+	Extension string `yaml:"extension"`
+	// Description is the human-readable file type name shown in
+	// Explorer/file managers (e.g. "My App Project File"). Optional -
+	// falls back to a generic "<AppName> File" when blank.
+	Description string `yaml:"description,omitempty"`
 }
 
 // InstallLocations gives the per-OS install root. Any left blank get a
@@ -152,7 +214,43 @@ type WindowsOptions struct {
 	// UpgradeCode; it must NOT be reused as the per-build MSI ProductCode.
 	UpgradeGUID string `yaml:"upgrade_guid"`
 	ExeName     string `yaml:"exe_name"`
+	// InstallScope picks between InstallScopeAllUsers (default) and
+	// InstallScopeCurrentUser — an author-time-only choice on both
+	// winexe/winmsi, the same way DesktopShortcut/AutostartAtLogin are on
+	// winmsi: a real runtime "install for me or everyone?" picker needs a
+	// dialog neither backend's bundled UI has (wixl's WixUI_Minimal has no
+	// InstallScopeDlg/WixUI_Advanced equivalent - confirmed by checking the
+	// installed msitools build's own bundled ext/ui directory - and a real
+	// NSIS equivalent would need bundling the external UAC plugin to
+	// elevate only after the choice is made, out of proportion for this).
+	//
+	// All-users (the default, and this project's pre-existing-only
+	// behavior before this field existed) requires admin elevation and
+	// installs into a machine-wide location every account can see/run
+	// (Program Files on winexe, ProgramFiles64Folder on winmsi) - this is
+	// what RequestExecutionLevel admin / ALLUSERS=1 have always meant here.
+	//
+	// Current-user needs no elevation at all and installs into a location
+	// only the account that ran the installer can see/run
+	// ($LOCALAPPDATA on winexe, LocalAppDataFolder on winmsi) - useful on a
+	// locked-down machine where the person installing isn't an admin.
+	// Switching to it changes more than just the install path: winexe's
+	// RequestExecutionLevel becomes "user" (from "admin") and its Programs
+	// & Features registration moves from HKLM to HKCU (a non-elevated
+	// process can't write HKLM at all), and its shortcuts stay in the
+	// per-user Start Menu/Desktop (NSIS's default shell-folder context)
+	// rather than being redirected to the all-users one via
+	// SetShellVarContext all; winmsi's ALLUSERS property is omitted
+	// entirely (not set to "0" - that's not a valid MSI value) rather than
+	// "1".
+	InstallScope string `yaml:"install_scope,omitempty"`
 }
+
+// Known WindowsOptions.InstallScope values.
+const (
+	InstallScopeAllUsers    = "all_users"
+	InstallScopeCurrentUser = "current_user"
+)
 
 // MacOSOptions covers .pkg (pkgbuild) specifics.
 type MacOSOptions struct {
@@ -179,6 +277,24 @@ type OutputOptions struct {
 	// even then only after the user confirms exactly what will be removed
 	// (see buildpanel.go's offerCleanupOldInstallers).
 	CleanOldVersions bool `yaml:"clean_old_versions,omitempty"`
+	// PostBuildHook is inline shell script text run once, on this build
+	// machine, right after every requested target/arch has finished
+	// building — unlike Hooks.PreInstall/PostUninstall (baked into the
+	// installer package itself, run later on a different, target
+	// machine), this runs immediately, locally, as part of the same
+	// build. Only runs when every target succeeded (see
+	// packager.Summary) — skipped with a clear progress note otherwise,
+	// since acting on "all the artifacts" rarely makes sense with some
+	// missing. Every successfully built artifact's path is handed to the
+	// script via INSTALLERBEAR_OUTPUT_<TARGET> environment variables (see
+	// packager's own postBuildHookEnv doc comment for the exact naming,
+	// including the _<ARCH> suffix used when a target built more than one
+	// arch), plus INSTALLERBEAR_ARTIFACTS (all of them,
+	// space-separated) and a few identity basics. A general escape hatch
+	// for things this tool doesn't implement natively — uploading to
+	// GitHub Releases, code signing, notarization, and so on — rather
+	// than growing a dedicated feature for each one.
+	PostBuildHook string `yaml:"post_build_hook,omitempty"`
 }
 
 // Known target names, shared by config Targets, the CLI --target flag, and

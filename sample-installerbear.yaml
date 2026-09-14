@@ -11,7 +11,7 @@
 identity:
     name: KrankyBearInstallerBear
     id: com.github.amarillier.KrankyBearInstallerBear
-    version: 0.3.0
+    version: 0.4.0
     publisher: Allan Marillier, 2026-
     vendor: Allan Marillier
     url: https://github.com/amarillier/KrankyBearInstallerBear

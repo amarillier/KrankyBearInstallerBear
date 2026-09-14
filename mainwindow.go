@@ -43,11 +43,13 @@ type editor struct {
 	icoEntry, icnsEntry, pngEntry                                        *widget.Entry
 	pngIconThumbnail                                                     *canvas.Image
 	guidEntry, exeNameEntry                                              *widget.Entry
+	installScopeSelect                                                   *widget.Select
 	launchAfterInstallCheck, desktopShortcutCheck, autostartAtLoginCheck *widget.Check
 	macExecEntry, macMinOSEntry                                          *widget.Entry
 	macCategoryEntry                                                     *widget.Entry
 	linuxCategoriesEntry, linuxCommentEntry                              *widget.Entry
-	outputDirEntry                                                       *widget.Entry
+	preInstallHookEntry, postUninstallHookEntry                          *widget.Entry
+	outputDirEntry, postBuildHookEntry                                   *widget.Entry
 
 	// Binaries tab — one field per (OS, arch) pair; see binariesform.go.
 	binaryFields []binaryField
@@ -55,6 +57,10 @@ type editor struct {
 	// Payload tab
 	payloadTable           *widget.Table
 	lastSelectedPayloadRow int // -1 when nothing is selected; see payloadtable.go
+
+	// File Associations tab
+	fileAssocTable           *widget.Table
+	lastSelectedFileAssocRow int // -1 when nothing is selected; see fileassoctable.go
 
 	// Build tab
 	targetChecks          map[string]*widget.Check
@@ -79,6 +85,7 @@ func newEditor(a fyne.App, win fyne.Window) *editor {
 	e.targetChecks = make(map[string]*widget.Check)
 	e.targetStatus = make(map[string]*widget.Label)
 	e.lastSelectedPayloadRow = -1
+	e.lastSelectedFileAssocRow = -1
 	return e
 }
 
@@ -90,6 +97,7 @@ func (e *editor) content() fyne.CanvasObject {
 		container.NewTabItem("Identity", e.buildIdentityTab()),
 		container.NewTabItem("Binaries", e.buildBinariesTab()),
 		container.NewTabItem("Payload", e.buildPayloadTab()),
+		container.NewTabItem("File Associations", e.buildFileAssociationsTab()),
 		container.NewTabItem("Build", e.buildBuildTab()),
 	)
 	e.refreshAll()
@@ -118,6 +126,7 @@ func (e *editor) refreshAll() {
 	e.refreshIdentityTab()
 	e.refreshBinariesTab()
 	e.refreshPayloadTab()
+	e.refreshFileAssociationsTab()
 	e.refreshBuildTab()
 }
 

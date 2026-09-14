@@ -251,9 +251,236 @@ func TestDebBuild_ContainsPostRemoveHook(t *testing.T) {
 	}
 }
 
+// TestDebBuild_ContainsDesktopEntry confirms a real app-menu .desktop file
+// lands in the built .deb's actual file payload (data.tar.gz, not just the
+// maintainer scripts) at the standard freedesktop.org location, with the
+// expected Name= - this is always installed regardless of
+// InstallExperience.DesktopShortcut (see desktopEntry's own comment).
+func TestDebBuild_ContainsDesktopEntry(t *testing.T) {
+	dir := t.TempDir()
+	proj := sampleProject(t, dir)
+	proj.Output.Dir = filepath.Join(dir, "out")
+	proj.Linux.DesktopComment = "A test application"
+	proj.Linux.DesktopCategories = "Utility"
+
+	outPath, err := NewDeb().Build(context.Background(), proj, packager.BuildOptions{}, nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	found, err := debDataArchiveContains(outPath, "usr/share/applications/test-app.desktop", "Name=Test App")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Fatalf(".desktop entry missing or wrong content in %s", outPath)
+	}
+
+	foundCategories, err := debDataArchiveContains(outPath, "usr/share/applications/test-app.desktop", "Categories=Utility;")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !foundCategories {
+		t.Errorf("expected Categories=Utility; (semicolon-terminated) in the .desktop entry")
+	}
+}
+
+// TestDebBuild_ContainsIconWhenPNGSet confirms Identity.Icons.PNG lands in
+// the hicolor icon theme directory the .desktop entry's Icon= line
+// references by name.
+func TestDebBuild_ContainsIconWhenPNGSet(t *testing.T) {
+	dir := t.TempDir()
+	proj := sampleProject(t, dir)
+	proj.Output.Dir = filepath.Join(dir, "out")
+	proj.Identity.Icons.PNG = filepath.Join(dir, "icon.png")
+	if err := os.WriteFile(proj.Identity.Icons.PNG, []byte("fake-png-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	outPath, err := NewDeb().Build(context.Background(), proj, packager.BuildOptions{}, nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	found, err := debDataArchiveContains(outPath, "usr/share/icons/hicolor/256x256/apps/test-app.png", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Fatalf("expected the PNG icon installed into the hicolor icon theme in %s", outPath)
+	}
+}
+
+// TestDebBuild_NoIconFileWhenPNGUnset confirms nothing gets installed into
+// the icon theme directory when Identity.Icons.PNG is blank - there's
+// nothing to copy, and the .desktop entry itself already omits Icon= in
+// that case (see TestDesktopEntry_OmitsIconWhenNoPNGSet).
+func TestDebBuild_NoIconFileWhenPNGUnset(t *testing.T) {
+	dir := t.TempDir()
+	proj := sampleProject(t, dir)
+	proj.Output.Dir = filepath.Join(dir, "out")
+
+	outPath, err := NewDeb().Build(context.Background(), proj, packager.BuildOptions{}, nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	found, err := debDataArchiveContains(outPath, "usr/share/icons/hicolor/256x256/apps/test-app.png", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found {
+		t.Errorf("expected no icon file in %s when Icons.PNG is unset", outPath)
+	}
+}
+
+// TestDebBuild_PostInstallRefreshesDesktopCaches confirms the desktop-
+// database/icon-cache refresh commands land in a real postinst maintainer
+// script (nfpm's PostInstall slot, previously unused by any Hooks field).
+func TestDebBuild_PostInstallRefreshesDesktopCaches(t *testing.T) {
+	dir := t.TempDir()
+	proj := sampleProject(t, dir)
+	proj.Output.Dir = filepath.Join(dir, "out")
+	proj.Identity.Icons.PNG = filepath.Join(dir, "icon.png")
+	if err := os.WriteFile(proj.Identity.Icons.PNG, []byte("fake-png-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	outPath, err := NewDeb().Build(context.Background(), proj, packager.BuildOptions{}, nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	for _, want := range []string{"update-desktop-database", "gtk-update-icon-cache"} {
+		found, err := debControlArchiveContains(outPath, "postinst", want)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !found {
+			t.Errorf("expected postinst to contain %q", want)
+		}
+	}
+}
+
+// TestDebBuild_PostRemoveMergesUserHookWithDesktopRefresh confirms the
+// project's own Hooks.PostUninstall text and the desktop/icon-cache
+// refresh commands both land in the same postrm script - the refresh
+// commands must be appended after the user's hook, not replace it (nfpm
+// only has one PostRemove slot, and Hooks.PostUninstall already claims it).
+func TestDebBuild_PostRemoveMergesUserHookWithDesktopRefresh(t *testing.T) {
+	dir := t.TempDir()
+	proj := sampleProject(t, dir) // sampleProject already sets Hooks.PostUninstall
+	proj.Output.Dir = filepath.Join(dir, "out")
+
+	outPath, err := NewDeb().Build(context.Background(), proj, packager.BuildOptions{}, nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	for _, want := range []string{"rm -rf /opt/test-app", "update-desktop-database"} {
+		found, err := debControlArchiveContains(outPath, "postrm", want)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !found {
+			t.Errorf("expected postrm to contain %q", want)
+		}
+	}
+}
+
+// TestDebBuild_FileAssociationInstallsMimePackageAndDesktopFields confirms
+// a real end-to-end build: the shared-mime-info package lands in the
+// actual .deb payload at the standard freedesktop.org location with the
+// right content, and the .desktop entry itself gets MimeType=/%f - all
+// from a real built archive, not just the desktopfile_test.go unit tests
+// of the string-building logic in isolation.
+func TestDebBuild_FileAssociationInstallsMimePackageAndDesktopFields(t *testing.T) {
+	dir := t.TempDir()
+	proj := sampleProject(t, dir)
+	proj.Output.Dir = filepath.Join(dir, "out")
+	proj.FileAssociations = []packproject.FileAssociation{
+		{Extension: ".myp", Description: "Test App Project"},
+	}
+
+	outPath, err := NewDeb().Build(context.Background(), proj, packager.BuildOptions{}, nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	found, err := debDataArchiveContains(outPath, "usr/share/mime/packages/test-app.xml", "application/x-test-app-myp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Fatalf("expected the shared-mime-info package installed at the standard location in %s", outPath)
+	}
+
+	foundDesktop, err := debDataArchiveContains(outPath, "usr/share/applications/test-app.desktop", "MimeType=application/x-test-app-myp;")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !foundDesktop {
+		t.Errorf("expected the .desktop entry to list the association's MimeType")
+	}
+}
+
+func TestDebBuild_PostInstallRefreshesMimeDatabaseWhenAssociationsSet(t *testing.T) {
+	dir := t.TempDir()
+	proj := sampleProject(t, dir)
+	proj.Output.Dir = filepath.Join(dir, "out")
+	proj.FileAssociations = []packproject.FileAssociation{{Extension: ".myp"}}
+
+	outPath, err := NewDeb().Build(context.Background(), proj, packager.BuildOptions{}, nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	found, err := debControlArchiveContains(outPath, "postinst", "update-mime-database")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Errorf("expected postinst to refresh the mime database when FileAssociations is set")
+	}
+}
+
+func TestDebBuild_NoMimePackageWithoutFileAssociations(t *testing.T) {
+	dir := t.TempDir()
+	proj := sampleProject(t, dir)
+	proj.Output.Dir = filepath.Join(dir, "out")
+
+	outPath, err := NewDeb().Build(context.Background(), proj, packager.BuildOptions{}, nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	found, err := debDataArchiveContains(outPath, "usr/share/mime/packages/test-app.xml", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found {
+		t.Errorf("expected no shared-mime-info package when FileAssociations is empty")
+	}
+}
+
 // debControlArchiveContains extracts control.tar.gz from a .deb (an ar
 // archive) and checks whether the named member's content contains want.
 func debControlArchiveContains(debPath, member, want string) (bool, error) {
+	return debArchiveMemberContains(debPath, "control.tar", member, want)
+}
+
+// debDataArchiveContains extracts data.tar.gz (the actual installed payload,
+// as opposed to control.tar.gz's maintainer scripts) from a .deb and checks
+// whether the named member's content contains want.
+func debDataArchiveContains(debPath, member, want string) (bool, error) {
+	return debArchiveMemberContains(debPath, "data.tar", member, want)
+}
+
+// debArchiveMemberContains extracts the ar member whose name has the given
+// prefix (a .deb is itself an ar archive containing "control.tar.*" and
+// "data.tar.*" members, each a gzipped tar) and checks whether the named
+// file inside it contains want.
+func debArchiveMemberContains(debPath, arMemberPrefix, member, want string) (bool, error) {
 	data, err := os.ReadFile(debPath)
 	if err != nil {
 		return false, err
@@ -270,7 +497,7 @@ func debControlArchiveContains(debPath, member, want string) (bool, error) {
 			size = size*10 + int(c-'0')
 		}
 		body := buf[60 : 60+size]
-		if strings.HasPrefix(name, "control.tar") {
+		if strings.HasPrefix(name, arMemberPrefix) {
 			return tarGzContains(body, member, want)
 		}
 		if size%2 == 1 {

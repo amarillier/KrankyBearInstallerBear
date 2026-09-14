@@ -70,7 +70,7 @@ func (p winmsiPackager) Build(ctx context.Context, proj *packproject.Project, op
 		return "", fmt.Errorf("winmsi: %w", err)
 	}
 
-	used := map[string]bool{"INSTALLDIR": true, "ProgramFiles64Folder": true, "TARGETDIR": true, "ProgramMenuFolder": true}
+	used := map[string]bool{"INSTALLDIR": true, "ProgramFiles64Folder": true, "LocalAppDataFolder": true, "TARGETDIR": true, "ProgramMenuFolder": true}
 	for _, c := range allComponents {
 		used[c] = true
 	}
@@ -89,12 +89,22 @@ func (p winmsiPackager) Build(ctx context.Context, proj *packproject.Project, op
 		BinaryFileID:        binaryFileID,
 		DesktopShortcut:     proj.InstallExperience.DesktopShortcut,
 		AutostartAtLogin:    proj.InstallExperience.AutostartAtLogin,
+		PerUser:             proj.Windows.InstallScope == packproject.InstallScopeCurrentUser,
 	}
 	if data.DesktopShortcut {
 		data.DesktopShortcutComponentID = uniqueID(used, "cmp_desktop_shortcut")
 	}
 	if data.AutostartAtLogin {
 		data.AutostartComponentID = uniqueID(used, "cmp_autostart")
+	}
+	for _, assoc := range proj.FileAssociations {
+		data.FileAssociations = append(data.FileAssociations, wxsFileAssociation{
+			ExtensionNoDot: strings.TrimPrefix(assoc.Extension, "."),
+			ProgID:         packager.FileAssociationProgID(proj.Identity.Name, assoc.Extension),
+			Description:    packager.FileAssociationDescription(assoc.Description, proj.Identity.Name),
+			ContentType:    packager.FileAssociationContentType(proj.Identity.Name, assoc.Extension),
+			ComponentID:    uniqueID(used, "cmp_assoc_"+strings.TrimPrefix(assoc.Extension, ".")),
+		})
 	}
 	if proj.Identity.Icons.ICO != "" {
 		data.IconFile = proj.ResolvePath(proj.Identity.Icons.ICO)

@@ -89,12 +89,12 @@ func TestParseISS_RealFixture(t *testing.T) {
 		t.Errorf("assets candidate OS = %v, want no restriction (package.sh bundles it into every platform too)", assets.OS)
 	}
 
-	notes := findCandidate(t, res, "ReleaseNotes.txt")
+	notes := findCandidate(t, res, "ReleaseNotes.md")
 	if notes == nil || notes.Recursive || notes.Dest != "" {
-		t.Errorf("ReleaseNotes.txt candidate = %+v, want a non-recursive root-dest entry", notes)
+		t.Errorf("ReleaseNotes.md candidate = %+v, want a non-recursive root-dest entry", notes)
 	}
 	if notes != nil && len(notes.OS) != 0 {
-		t.Errorf("ReleaseNotes.txt candidate OS = %v, want no restriction — it's not Windows-specific content", notes.OS)
+		t.Errorf("ReleaseNotes.md candidate OS = %v, want no restriction — it's not Windows-specific content", notes.OS)
 	}
 
 	for _, mesaFile := range []string{

@@ -9,6 +9,7 @@ import (
 )
 
 var aboutWindow fyne.Window
+var aboutManagedWindow *managedWindow // hide-all/show-all tracking, see windowregistry.go
 
 // showAbout displays the About dialog with app branding, version, and links
 // Reusable pattern from KrankyBearClock - customize these for your app:
@@ -22,11 +23,13 @@ func showAbout(a fyne.App) {
 	if aboutWindow != nil && aboutWindow.Content().Visible() {
 		aboutWindow.Show()
 		aboutWindow.RequestFocus()
+		aboutManagedWindow.open = true
 		return
 	}
 
 	aboutWindow = a.NewWindow(appName + " - About")
 	aboutWindow.SetIcon(resourceKrankyBearInstallerBearPng)
+	aboutManagedWindow = registerManagedWindow(aboutWindow)
 
 	// App icon - ImageFillContain via newBrandingDialogImage keeps this at
 	// brandingImageSizeDialog regardless of the source PNG's native
@@ -87,9 +90,11 @@ func showAbout(a fyne.App) {
 	aboutWindow.Resize(fyne.NewSize(480, 620))
 
 	aboutWindow.SetCloseIntercept(func() {
+		aboutManagedWindow.open = false
 		aboutWindow.Hide()
 	})
 
+	aboutManagedWindow.open = true
 	aboutWindow.Show()
 }
 

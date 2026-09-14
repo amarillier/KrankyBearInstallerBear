@@ -4,34 +4,170 @@ KrankyBear InstallerBear: cross-platform GUI + CLI for packaging pre-built binar
 
 ## Future Ideas
 
-Roughly in the order we plan to tackle them (batched into small, shippable, testable chunks rather than one big push — reassessed 2026-09-09).
 
 ### Next up
 
 *Nothing queued right now.*
 
-### Then (bigger; tackle once the above is proven)
+### Maybe next, under consideration
+- Windows equivalent of `hooks.pre_install`/`post_uninstall` (currently no-ops there - NSIS/MSI have no shell interpreter). Technically buildable, not just a dead end: NSIS already shells out to an external `.exe` for the uninstall-time taskkill call, so a Windows hook could write the user's script text to a temp `.ps1`/`.bat` and `ExecWait powershell.exe`/`cmd.exe` against it the same way; `.msi` could follow the already-proven Launch-after-install CustomAction pattern to invoke an external program too. Deliberately parked (2026-09-14) - Allan doesn't use pre/post hooks much and has other tools for that job, but we recognize other people will see value in this
 
-- Custom installer wizard pages - still just an idea, no concrete design yet (what a "page" would even configure isn't defined)
-- [Icons]/[Tasks]/[Run]/[UninstallRun]/[UninstallDelete] importing for "Import Existing Config" - [Registry]-based file associations are now imported (see 0.5.0 below); these five remaining Inno sections are still just counted and reported as skipped rather than silently dropped, ready to wire up once there's a concrete need
+### Bigger; deferred for now, maybe never
+
+- Custom installer wizard pages - still just an idea with no concrete design (what a "page" would even configure isn't defined), and deliberately deprioritized as of 0.6.0: the real per-engine cost (wixl has no custom-dialog authoring precedent at all) isn't justified without a specific use case in view. Most "ask the user something at setup time" needs are better solved as first-run setup inside the app itself anyway - no per-installer-engine parity problem to solve at all
 - Real Linux autostart (XDG autostart) is still deliberately unsolved - the only real mechanism there (/etc/xdg/autostart) is system-wide, unlike Windows' own per-user toggle, a genuine semantic mismatch worth a real decision rather than a quick wrong-shaped fix - for now we will defer, maybe skip this as never do, to be decided
 - Windows ARM64 .msi is currently NOT achievable - confirmed empirically 2026-09-14 by testing wixl 0.106 directly: it only recognizes x86/x64/intel/intel64 as -a values, arm64/aarch64/amd64 all hard-error with "arch of type 'X' is not supported". Not a hardcoded-flag bug fixable here - a genuine limitation of the wixl build this project deliberately chose over Microsoft's own WiX (path-validation bug on non-Windows hosts, see winmsi's own package doc comment). Setup.exe/NSIS has no such limitation - winexe/build.go has no arch-specific packaging logic at all, since NSIS doesn't encode target CPU architecture into the installer format the way MSI does - so it should already work for a real windows/arm64 binary with zero code changes, though this is genuinely untested on real ARM64 Windows hardware. If real MSI-for-ARM64 is ever worth solving: a second, Windows-only backend using real Microsoft WiX (v4/v5) would be the honest path, since the original reason to avoid it (broken path validation on macOS/Linux build hosts) wouldn't apply on a build that genuinely runs on a native Windows GitHub Actions runner (windows-11-arm/windows-11-vs2026-arm, GA since 2026-08-19) - a bigger, separate piece of work, not a quick fix
 
 ### Lower priority for now
 
-Confirmed with Allan 2026-09-09 - no certs yet for code signing, and choco/brew were just alternative-packaging thoughts he'd consider later, not a pressing need.
+No certs yet for code signing, and choco/brew were just alternative-packaging thoughts to consider later, not a pressing need.
 
 - code signing for NSIS/MSI/pkg/deb/rpm outputs
 - choco and brew, with notes on self hosting use and also notes on submission and approval for real choco and brew based hosting
 
-### Smaller, uncategorized
-
-- Improve "Show/Hide All Windows" to remember exactly which secondary windows were open, instead of the current blanket a.Driver().AllWindows() approach (which can re-show a window closed earlier in the session)
-
 ### Maybe later, lower value
 
-- maybe some day i18n language support
-- maybe some day a macOS .dmg target, alongside .pkg (not instead of - Allan's fine with .pkg either way, this is a "someday maybe, maybe never" thought, not a real ask). Worth noting if it ever comes up: a .dmg is a different distribution model entirely, not a script-driven installer like .pkg - just a mounted disk image with the .app bundle and an /Applications symlink, drag-to-install, no pkgbuild/postinstall scripts involved at all (hdiutil create is the whole mechanism), so it could actually be a lighter lift than .pkg was, not a harder one
+- maybe some day i18n language support in the application itself (the `assets/i18n` scaffolding already exists - see CLAUDE.md - but wiring an actual language switcher through every window is a real, substantial investment, not a quick add). Deliberately left parked (2026-09-14) until an actual non-English user is driving it, not just "would be nice"
+- maybe some day letting installer-generated dialogs themselves show in other languages (distinct from the app's own i18n above - this would be about `Setup.exe`/`.msi`'s own wizard text). Checked empirically (2026-09-14): genuinely cheap on `Setup.exe` (NSIS's MUI2 ships built-in language packs, just `!insertmacro MUI_LANGUAGE "German"` etc.), but no free lunch on `.msi` - `wixl`'s bundled UI extension ships zero translated string tables, so that half would mean hand-authoring every dialog string per language from scratch. Deliberately parked until someone actually asks for a non-English installer
+- macOS `.dmg` alongside `.pkg` - settled as not worth pursuing (2026-09-14): We have built both before and found no real advantage either way for the end user, `.pkg` just easier for creating. Not revisiting unless something changes
+
+## Version 0.6.0 - September 14, 2026
+
+- File Associations now also work on macOS: when the project directory has
+  a real `Info.plist`, or its own `Info-plist.txt` placeholder (promoted
+  to a real, functional one even without renaming - configuring a File
+  Association at all is already an explicit opt-in to needing a real
+  plist), macpkg merges a `CFBundleDocumentTypes` array into a copy of it
+  automatically. An author's own hand-written `CFBundleDocumentTypes` is
+  always left untouched, never fought or duplicated; with neither file
+  present there's still nothing to merge into, so macpkg logs a clear
+  progress note instead. No plist-parsing library added - hand-built XML
+  injection in the same spirit as this project's shared-mime-info
+  generator, finding the root `<dict>`'s own closing tag (guaranteed to be
+  the last `</dict>` before `</plist>`, by XML nesting) and inserting the
+  new block right before it
+- `ReleaseNotes.md` converted to proper Markdown (real `#`/`##`/`###`
+  headings, no more decorative `━` underlines) for better formatting and
+  future readability. Two real regressions this could have introduced were
+  caught and fixed in the same pass, since two tools parse this file's
+  exact shape by regex/string-match, not just render it: `internal/
+  projectscan`'s "New Project" smart-scan (tolerant of an optional `#`
+  heading marker now) and `setver.sh`'s own version-bump header insertion
+  (now matches/writes `## Version ...` instead of the old bare form)
+- "Import Existing Config" (GUI + CLI) now also recognizes `[Tasks]`/
+  `[Run]` conventions and maps them onto InstallerBear's own already-
+  shipped `InstallExperience` toggles, rather than treating them as
+  unsupported: Inno's own `"desktopicon"` task name -> Desktop shortcut; a
+  task name containing "startup"/"autostart" -> Run at startup; a `[Run]`
+  entry with the `postinstall` flag pointing at the app's own exe ->
+  Launch after install. `[Icons]`/`[UninstallRun]` lines matching the
+  Start Menu/Desktop shortcut and taskkill-on-uninstall conventions
+  InstallerBear already handles unconditionally are now recognized as
+  already-covered too, instead of being misreported as unsupported.
+  `[UninstallDelete]` entries resolving inside the install directory get a
+  clear, honest note: already cleaned up for free by `Setup.exe`'s
+  uninstaller (which removes the whole install directory recursively) but
+  **not** by `.msi`'s (Windows Installer only removes what it tracked, and
+  the one real WiX mechanism for this - `RemoveFile`/`RemoveFolder` -
+  crashes `wixl` outright when compiled, confirmed empirically: the same
+  class of tool limitation as `wixl`'s missing ARM64 support). Nothing
+  outside these specific conventions is guessed at - a Quick Launch icon
+  task, a custom `[Run]` step, a path deleted from outside the install
+  directory, and so on are still reported as not imported, same as before
+- Custom installer wizard pages, and importing anything beyond the
+  `[Tasks]`/`[Run]`/`[Icons]`/`[UninstallRun]`/`[UninstallDelete]`
+  conventions above, remain explicitly out of scope (see "Future Ideas")
+- `Setup.exe` now compiles with `SetCompressor /SOLID lzma` instead of
+  NSIS's own weaker `zlib` default - found while investigating why this
+  project's own InstallerBear-built installers came out noticeably bigger
+  than its old Inno/fpm-built ones for the exact same payload (Inno Setup
+  has always defaulted to lzma; NSIS doesn't unless told to). Benefits
+  every project built with this tool, not just this one
+- Fixed this project's own `installerbear.yaml`/`sample-installerbear.yaml`
+  bundling ~18MB of `assets/images`/`assets/sounds` into every `.pkg`/
+  `.deb`/`.rpm` as loose Payload files that the running app never actually
+  reads from disk - `bundled.go` already `//go:embed`s the handful of
+  images the app really needs straight into the binary at compile time.
+  The old `package.sh` already knew this (it stages `assets/images`/
+  `sounds` into scratch space but never actually lists them in any of its
+  three `fpm` file-list arrays), InstallerBear's migrated Payload config
+  just never carried that exclusion over. Fixed by replacing the single
+  blanket `source: assets, dest: assets, recursive: true` entry (with an
+  `excludes:` blocklist for `mesa-win/*`/`images/*`/`sounds/*`) with an
+  explicit allowlist instead - just `source: assets/i18n, dest: assets/i18n,
+  recursive: true` plus the existing per-file `mesa-win` entries - rather
+  than keeping the blocklist approach: Allan's own call, since a Payload
+  entry that bundles a whole folder *except* a hardcoded blocklist would
+  silently and confusingly exclude a subfolder a project's own
+  `installerbear.yaml` author might genuinely want bundled (there's no
+  tool-level filtering either way - this is purely how these two specific
+  config files list what they want - but an allowlist makes that obvious
+  by inspection, a blocklist doesn't). Confirmed via a real rebuild that
+  `.deb`/`.pkg` both dropped back down to roughly their old fpm-built
+  sizes (`.deb`: 35.3MB -> 16.9MB; `.pkg`: 36.2MB -> 17.8MB), with the
+  installed `assets/i18n/*` layout unchanged either way. A one-off fix
+  to this project's own config, not a change to InstallerBear itself -
+  worth checking for the same pattern (a Payload entry bundling a whole
+  `assets/`-style folder whose images/sounds are already embedded via
+  `go:embed`) when migrating any other KrankyBear-family project onto this
+  tool. Both fixes above confirmed on real hardware via Allan's own
+  `compile-all.sh` + side-by-side InstallerBear build: `Setup.exe` dropped
+  from 52.0MB to 33.4MB (now smaller than the old Inno-built one), and
+  `.pkg`/`.deb`/`.rpm` all landed within ~1-2MB of their old fpm-built
+  sizes across amd64/arm64/x86_64/aarch64
+- Fixed a real, reproducible bug in Show All Windows/Hide All Windows
+  (View menu, tray, and each of them individually): explicitly closing a
+  secondary window (About/Help/Update/Release Notes) and then using Hide
+  All + Show All brought it back anyway - confirmed by Allan's own hands-on
+  test (open all four, hide, show - all four return, correct; close two,
+  hide, show - all four return again, wrong). Root cause: the previous
+  implementation called Show()/Hide() on every window Fyne's driver
+  happened to still hold a reference to, and this app's own
+  `SetCloseIntercept` on every secondary window only ever calls `Hide()`
+  (never a real `Close()`), so a "closed" window was indistinguishable
+  from a merely-hidden one to that blanket approach. Fixed by porting
+  `../KrankyBearClipboardSentinel`'s own `windowregistry.go` - the
+  reference implementation of CLAUDE.md's "Hide all / show all windows"
+  convention across the KrankyBear project family - which tracks each
+  window's own explicitly-set "open" flag (set true on show, false only by
+  that window's own close-intercept) instead of querying visibility from
+  the driver. Show All Windows now restores exactly the set that was open,
+  nothing more
+- Fixed a real bug found via Allan's own hands-on testing: opening the
+  bundled `sample-installerbear.yaml` (which has a real header comment
+  block explaining it) in the GUI and saving silently dropped every
+  comment - `gopkg.in/yaml.v3`'s normal `Marshal`/`Unmarshal` round-trip
+  doesn't preserve comments at all. Fixed by parsing a loaded project
+  through a `yaml.Node` tree (not just straight into the struct) and,
+  when saving, merging that tree's comments onto a fresh encoding of the
+  project's current values before writing - matching each entry by key
+  name for a mapping, and by a natural per-shape key for a list
+  (`PayloadEntry` by `Source`, `BinaryEntry` by `OS`+`Arch`,
+  `FileAssociation` by `Extension`, a plain scalar list like `Targets` by
+  its own value) rather than by position, so a comment survives even if
+  the list around it was reordered or added to elsewhere. Deliberately a
+  manual-editing-only capability, per Allan's own framing - there's no
+  GUI for adding or editing a comment, this only stops the app from
+  silently destroying one a human typed directly into the `.yaml` file
+  (ordinary `#`-to-end-of-line syntax, exactly like a shell script). A
+  project built by hand (a brand-new project, the in-code generated
+  sample, every existing test) has nothing to preserve, so it marshals
+  exactly as before - this only changes behavior for a project actually
+  loaded from a real file
+- Clarified in the README/in-app Help/schema doc comments exactly how
+  `hooks.pre_install`/`post_uninstall` work, since neither had ever really
+  been documented beyond "runs on the target machine": `pre_install` runs
+  on both macOS (`.pkg`'s own preinstall script) and Linux (`.deb`/`.rpm`'s
+  own preinst); `post_uninstall` runs on Linux only (a `.pkg` install has
+  no OS-level uninstall action to hook into at all); Windows has no
+  effect on either, since NSIS/MSI have no shell interpreter to run script
+  text in. Both run under `/bin/sh` by default, but starting the hook's
+  own text with a shebang line (e.g. `#!/usr/bin/env python3`) switches
+  the interpreter, exactly like a normal script file. One real caveat
+  worth knowing: InstallerBear's own desktop-database/icon-cache/
+  shared-mime-info refresh commands are appended after `post_uninstall`'s
+  own text in the same script on Linux, so a custom shebang there should
+  stay POSIX-shell-compatible for those to keep working
 
 ## Version 0.5.0 - September 14, 2026
 

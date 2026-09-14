@@ -237,6 +237,61 @@ func TestBuildImportFields_AlreadyRegisteredFileAssociationIsNotProposedAgain(t 
 	}
 }
 
+// TestBuildImportFields_ProposesInstallExperienceToggles confirms the
+// three [Tasks]/[Run]-derived InstallExperience toggles (see
+// innoimport/installexperience.go) flow through buildImportFields as real
+// importFields too, the same generic GUI/CLI-shared mechanism the
+// FileAssociation fields above already rely on.
+func TestBuildImportFields_ProposesInstallExperienceToggles(t *testing.T) {
+	proj := &packproject.Project{}
+	iss := innoimport.ISSResult{
+		DesktopShortcut:    true,
+		AutostartAtLogin:   true,
+		LaunchAfterInstall: true,
+	}
+
+	fields := buildImportFields(proj, innoimport.PkgConfigResult{}, iss)
+
+	for _, label := range []string{
+		"Desktop shortcut (Install Experience)",
+		"Run at startup (Install Experience)",
+		"Launch after install (Install Experience)",
+	} {
+		f := fieldByLabel(t, fields, label)
+		if f == nil {
+			t.Fatalf("expected a %q field", label)
+		}
+		if f.current != "" {
+			t.Errorf("%s: current = %q, want \"\" (so the CLI's default fill-blanks-only policy applies it without needing -overwrite)", label, f.current)
+		}
+		if f.proposed != "enable" {
+			t.Errorf("%s: proposed = %q, want %q", label, f.proposed, "enable")
+		}
+	}
+
+	for _, f := range fields {
+		f.apply(proj)
+	}
+	if !proj.InstallExperience.DesktopShortcut || !proj.InstallExperience.AutostartAtLogin || !proj.InstallExperience.LaunchAfterInstall {
+		t.Errorf("apply() did not set all three toggles, got %+v", proj.InstallExperience)
+	}
+}
+
+// TestBuildImportFields_AlreadyEnabledInstallExperienceIsNotProposedAgain
+// mirrors the FileAssociation "already registered" test above but for the
+// boolean toggles - importing shouldn't nag about a toggle the project
+// already has enabled.
+func TestBuildImportFields_AlreadyEnabledInstallExperienceIsNotProposedAgain(t *testing.T) {
+	proj := &packproject.Project{InstallExperience: packproject.InstallExperience{DesktopShortcut: true}}
+	iss := innoimport.ISSResult{DesktopShortcut: true}
+
+	fields := buildImportFields(proj, innoimport.PkgConfigResult{}, iss)
+
+	if f := fieldByLabel(t, fields, "Desktop shortcut (Install Experience)"); f != nil {
+		t.Errorf("expected no field when DesktopShortcut is already enabled, got %+v", f)
+	}
+}
+
 func TestParseProjectISS_UsesKBInnoISSPath(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "Custom"), 0o755); err != nil {

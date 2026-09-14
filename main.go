@@ -17,7 +17,7 @@ import (
 
 const (
 	// appName    = "KrankyBear InstallerBear"
-	appVersion = "0.5.0" // see FyneApp.toml
+	appVersion = "0.6.0" // see FyneApp.toml
 	appAuthor  = "Allan Marillier"
 	appID      = "com.github.amarillier.KrankyBearInstallerBear"
 )
@@ -90,6 +90,8 @@ func main() {
 	win := a.NewWindow(appName)
 	win.SetIcon(resourceKrankyBearInstallerBearPng)
 	win.Resize(mainWindowLaunchSize(a)) // restore previous size (size only - Fyne can't restore position)
+	mainManagedWindow := registerManagedWindow(win)
+	mainManagedWindow.open = true // the main window's close-intercept quits rather than hides, so this never flips false
 
 	mainEditor = newEditor(a, win)
 	win.SetContent(mainEditor.content())
@@ -176,8 +178,8 @@ func buildMenu(a fyne.App, win fyne.Window) *fyne.MainMenu {
 		fyne.NewMenuItem("Quit", func() { fyne.Do(func() { quitApp(a, win) }) }),
 	)
 	viewMenu := fyne.NewMenu("View",
-		fyne.NewMenuItem("Show All Windows", func() { bringAllAppWindowsToFront(a, win) }),
-		fyne.NewMenuItem("Hide All Windows", func() { hideAllAppWindows(a) }),
+		fyne.NewMenuItem("Show All Windows", func() { showAllWindows(); win.RequestFocus() }),
+		fyne.NewMenuItem("Hide All Windows", func() { hideAllWindows() }),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Light Theme", func() { setLightTheme(a) }),
 		fyne.NewMenuItem("Dark Theme", func() { setDarkTheme(a) }),
@@ -192,35 +194,6 @@ func buildMenu(a fyne.App, win fyne.Window) *fyne.MainMenu {
 	return fyne.NewMainMenu(fileMenu, viewMenu, helpMenu)
 }
 
-// bringAllAppWindowsToFront shows every window Fyne's driver currently holds
-// for this app (main window plus any About/Help/Update window that's been
-// created, even if hidden) and focuses the main window last so the whole
-// stack rises together. Mirrors ../TaniumMigrator's menu.go — note the same
-// trade-off it accepts: Fyne doesn't destroy a window object on Hide, only
-// on Close, so this can also re-show a secondary window the user explicitly
-// closed earlier in the session, not just the ones open when Hide-all ran.
-func bringAllAppWindowsToFront(a fyne.App, mainWin fyne.Window) {
-	for _, win := range a.Driver().AllWindows() {
-		if win != nil {
-			win.Show()
-		}
-	}
-	if mainWin != nil {
-		mainWin.RequestFocus()
-	}
-}
-
-// hideAllAppWindows hides every window Fyne's driver currently holds for
-// this app, mirroring bringAllAppWindowsToFront so Hide/Show-all act on the
-// same set.
-func hideAllAppWindows(a fyne.App) {
-	for _, win := range a.Driver().AllWindows() {
-		if win != nil {
-			win.Hide()
-		}
-	}
-}
-
 // setupSystemTray mirrors the main menu. Tray callbacks fire off the main
 // goroutine, so every body is wrapped in fyne.Do (CLAUDE.md "fyne.Do is
 // mandatory").
@@ -230,8 +203,8 @@ func setupSystemTray(a fyne.App, win fyne.Window) {
 		return // not a desktop driver
 	}
 	menu := fyne.NewMenu(appName,
-		fyne.NewMenuItem("Show All Windows", func() { fyne.Do(func() { bringAllAppWindowsToFront(a, win) }) }),
-		fyne.NewMenuItem("Hide All Windows", func() { fyne.Do(func() { hideAllAppWindows(a) }) }),
+		fyne.NewMenuItem("Show All Windows", func() { fyne.Do(func() { showAllWindows(); win.RequestFocus() }) }),
+		fyne.NewMenuItem("Hide All Windows", func() { fyne.Do(hideAllWindows) }),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("New Project", func() { fyne.Do(func() { mainEditor.newProject() }) }),
 		fyne.NewMenuItem("New Sample Project...", func() { fyne.Do(func() { mainEditor.newSampleProject() }) }),

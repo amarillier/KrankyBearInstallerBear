@@ -9,6 +9,7 @@ import (
 )
 
 var helpWindow fyne.Window
+var helpManagedWindow *managedWindow // hide-all/show-all tracking, see windowregistry.go
 
 // showHelp displays comprehensive help documentation
 // Reusable pattern from KrankyBearClock - customize these for your app:
@@ -27,11 +28,13 @@ func showHelp(a fyne.App) {
 	if helpWindow != nil && helpWindow.Content().Visible() {
 		helpWindow.Show()
 		helpWindow.RequestFocus()
+		helpManagedWindow.open = true
 		return
 	}
 
 	helpWindow = a.NewWindow(appName + " - Help")
 	helpWindow.SetIcon(resourceKrankyBearInstallerBearPng)
+	helpManagedWindow = registerManagedWindow(helpWindow)
 
 	helpText := `` + appName + ` - Help
 
@@ -57,6 +60,12 @@ FEATURES:
   (Windows registry entries / Windows .msi ProgId / Linux shared-mime-info
   + .desktop MimeType=). Works on macOS too when the project has a real
   Info.plist or Info-plist.txt to add CFBundleDocumentTypes to.
+• Import Existing Config... (File menu, or "installerbear import" on the
+  CLI) - best-effort-imports an existing Inno Setup .iss and/or
+  KrankyBear-template build-config.sh/package.sh: Identity, Windows Upgrade
+  GUID/exe name, Payload, File Associations, and Install Experience
+  toggles (Desktop shortcut/Run at startup/Launch after install). Shows
+  current -> proposed before anything is applied; safe to re-run.
 • Build tab - checkboxes per target with live preflight status (is the tool
   installed, is the target supported here), Re-check Tools, Start/Cancel, and
   a streaming build log.
@@ -91,8 +100,22 @@ SMART FEATURES:
   working starting point instead of a blank project.
 ✨ Release Notes viewer (Help menu + tray): opens the installed release
   notes in their own window - no need to go hunting for the file.
+✨ Hand-typed "#" comments in installerbear.yaml survive being opened and
+  saved by this app - useful for notes, or temporarily commenting out a
+  payload/binary/file-association entry. Manual-editing only: there's no
+  GUI for adding or editing a comment, this just stops the app from
+  silently deleting one you typed directly into the file.
 ✨ Hooks (Identity tab): Pre-install/Post-uninstall run on the TARGET
-  machine, baked into the macOS .pkg/Linux .deb-.rpm package itself.
+  machine, baked into the macOS .pkg/Linux .deb-.rpm package itself. Runs
+  as /bin/sh by default (start your own text with a shebang, e.g.
+  #!/usr/bin/env python3, to use a different interpreter instead - same
+  convention as a normal script file). Windows has no shell interpreter,
+  so both fields are simply unavailable there. Pre-install runs on both
+  macOS and Linux, before files are installed. Post-uninstall runs on
+  Linux only (a .pkg install has no OS-level uninstall action to hook
+  into) - on Linux, InstallerBear's own desktop/icon-cache refresh
+  commands run right after your own post-uninstall text in the same
+  script, so keep that one to plain POSIX shell.
   Post-build hook (Output section) instead runs immediately on THIS build
   machine right after a successful build, with the built artifacts' paths
   passed in as INSTALLERBEAR_OUTPUT_<TARGET> environment variables - a
@@ -163,9 +186,11 @@ No registration, no tracking, no phone-home (except manual update checks).
 	helpWindow.Resize(fyne.NewSize(850, 700))
 
 	helpWindow.SetCloseIntercept(func() {
+		helpManagedWindow.open = false
 		helpWindow.Hide()
 	})
 
+	helpManagedWindow.open = true
 	helpWindow.Show()
 }
 

@@ -286,3 +286,50 @@ Root: HKCR; Subkey: "TestAppMyp\shell\open\command"; ValueType: string; ValueNam
 		t.Errorf(".myp appears %d times in FileAssociations after two imports, want 1", count)
 	}
 }
+
+// TestCmdImport_InstallExperienceTogglesImportAndAreIdempotentOnRerun
+// covers the [Tasks]/[Run] -> InstallExperience recognition
+// (innoimport/installexperience.go) end to end via the real cmdImport CLI
+// entry point, mirroring the FileAssociation test above: import once,
+// import again, confirm the toggles land and re-running doesn't produce
+// duplicate fields or flip anything back off.
+func TestCmdImport_InstallExperienceTogglesImportAndAreIdempotentOnRerun(t *testing.T) {
+	dir := t.TempDir()
+	writeSourceFixture(t, dir)
+	iss, err := os.ReadFile(filepath.Join(dir, "Inno", "app.iss"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	iss = append(iss, []byte(`#define MyAppExeName "TestApp.exe"
+[Tasks]
+Name: "desktopicon"; Description: "Create a &desktop icon"
+Name: "startup"; Description: "Automatically start on login"; Flags: unchecked
+[Run]
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch"; Flags: nowait postinstall skipifsilent
+`)...)
+	if err := os.WriteFile(filepath.Join(dir, "Inno", "app.iss"), iss, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	projectPath := filepath.Join(dir, "installerbear.yaml")
+	if code := cmdImport([]string{"-source", dir, "-p", projectPath}); code != 0 {
+		t.Fatalf("first cmdImport exit code = %d, want 0", code)
+	}
+	if code := cmdImport([]string{"-source", dir, "-p", projectPath}); code != 0 {
+		t.Fatalf("second cmdImport exit code = %d, want 0", code)
+	}
+
+	proj, err := packproject.LoadLenient(projectPath)
+	if err != nil {
+		t.Fatalf("LoadLenient: %v", err)
+	}
+	if !proj.InstallExperience.DesktopShortcut {
+		t.Error("expected DesktopShortcut = true after import")
+	}
+	if !proj.InstallExperience.AutostartAtLogin {
+		t.Error("expected AutostartAtLogin = true after import")
+	}
+	if !proj.InstallExperience.LaunchAfterInstall {
+		t.Error("expected LaunchAfterInstall = true after import")
+	}
+}

@@ -2,6 +2,8 @@
 // shared by every backend under internal/packager and by both the GUI and CLI.
 package packproject
 
+import "gopkg.in/yaml.v3"
+
 // Project describes everything needed to build installers/packages for one
 // application across Windows, macOS, and Linux.
 type Project struct {
@@ -28,6 +30,16 @@ type Project struct {
 	// Load(); leave empty (paths resolve against the process cwd) when
 	// constructing a Project by hand, e.g. in tests.
 	BaseDir string `yaml:"-"`
+
+	// sourceNode is the raw YAML document tree captured by
+	// parseAndDefault, if this Project came from a real file - see
+	// comments.go's own doc comment for what it's for (preserving
+	// hand-typed comments across a load/save round-trip). Left nil for a
+	// Project built by hand (a brand-new "New Project", the in-code
+	// generated sample, every test in this codebase), which is exactly
+	// right: there's no original comment layout to preserve for something
+	// that was never loaded from a file.
+	sourceNode *yaml.Node `yaml:"-"`
 }
 
 // Identity holds the app metadata common to every packaging backend.
@@ -149,10 +161,33 @@ type InstallLocations struct {
 	Linux   string `yaml:"linux,omitempty"`
 }
 
-// Hooks holds optional inline shell snippets run around install/uninstall.
-// Both default to empty (no hook) — most projects need neither.
+// Hooks holds optional inline shell snippets run on the TARGET machine
+// (baked into the built macOS `.pkg`/Linux `.deb`/`.rpm` package itself,
+// executed later by its own install/uninstall action - contrast
+// Output.PostBuildHook, which runs immediately on THIS build machine
+// instead). Both default to empty (no hook) — most projects need neither.
+// Windows has no equivalent: NSIS/MSI have no shell interpreter to run
+// script text in, so both fields are simply unavailable there, not a
+// setting that could apply but doesn't.
+//
+// Runs under /bin/sh by default (a "#!/bin/sh\nset -e\n" header is
+// prepended automatically) - start the text with its own shebang line
+// (e.g. "#!/usr/bin/env python3") to use a different interpreter instead,
+// the same convention any real script file follows; InstallerBear only
+// adds the default header when the text doesn't already start with "#!".
 type Hooks struct {
-	PreInstall    string `yaml:"pre_install,omitempty"`
+	// PreInstall runs before files are installed, on both macOS (the
+	// .pkg's own preinstall script) and Linux (.deb/.rpm's own preinst).
+	PreInstall string `yaml:"pre_install,omitempty"`
+	// PostUninstall runs after removal, Linux only - a .pkg install has
+	// no OS-level uninstall action at all for anything to hook into, so
+	// this has no effect on macOS (a clear progress note is logged during
+	// a macOS build when it's set, rather than silently doing nothing).
+	// On Linux, InstallerBear's own desktop-database/icon-cache/
+	// shared-mime-info refresh commands (see debrpm's own
+	// desktopfile.go) run right after this text, in the same script -
+	// keep this one to plain POSIX shell so those still work regardless
+	// of any custom shebang used here.
 	PostUninstall string `yaml:"post_uninstall,omitempty"`
 }
 

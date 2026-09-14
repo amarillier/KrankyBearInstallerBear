@@ -37,10 +37,18 @@ func parseAndDefault(path string) (*Project, error) {
 		return nil, fmt.Errorf("reading project file: %w", err)
 	}
 
-	var proj Project
-	if err := yaml.Unmarshal(data, &proj); err != nil {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
 		return nil, fmt.Errorf("parsing project file: %w", err)
 	}
+	var proj Project
+	if err := root.Decode(&proj); err != nil {
+		return nil, fmt.Errorf("parsing project file: %w", err)
+	}
+	// Keep the raw node tree (comments and all) so Marshal can preserve
+	// any hand-typed "#" comments when this project is saved again - see
+	// comments.go.
+	proj.sourceNode = &root
 
 	proj.Defaults()
 

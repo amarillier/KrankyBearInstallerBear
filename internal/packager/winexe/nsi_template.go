@@ -31,7 +31,19 @@ import (
 // Unicode is left at NSIS's modern default (true) here; see build.go's
 // comment on why a local dev-only workaround exists for verifying this
 // template compiles at all on this machine's specific makensis build.
+//
+// SetCompressor /SOLID lzma - NSIS's own default compressor (when this
+// directive is omitted, as it was until this line was added) is zlib,
+// noticeably weaker than the lzma Inno Setup has always defaulted to for
+// every project this tool aims to replace (Inno/KrankyBearInstallerBear.iss
+// itself sets "Compression=lzma" explicitly) - found while investigating
+// why this project's own InstallerBear-built installers came out
+// meaningfully bigger than its old Inno/fpm-built ones for the exact same
+// payload. /SOLID compresses every file as one combined stream rather than
+// per-file, which compounds the improvement further for a payload with many
+// similar files (icons, locale packs, ...).
 var nsiTemplate = template.Must(template.New("app.nsi").Parse(`Unicode true
+SetCompressor /SOLID lzma
 {{- if .IconFile}}
 !define MUI_ICON "{{.IconFile}}"
 !define MUI_UNICON "{{.IconFile}}"

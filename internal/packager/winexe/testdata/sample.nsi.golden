@@ -1,4 +1,5 @@
 Unicode true
+SetCompressor /SOLID lzma
 !define MUI_ICON "C:\src\icon.ico"
 !define MUI_UNICON "C:\src\icon.ico"
 !include "MUI2.nsh"

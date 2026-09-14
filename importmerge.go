@@ -117,6 +117,29 @@ func buildImportFields(current *packproject.Project, pkg innoimport.PkgConfigRes
 		})
 	}
 
+	// InstallExperience toggles recognized from [Tasks]/[Run] (see
+	// installexperience.go) - addToggle only ever proposes turning one on
+	// (never off), and only when it isn't already on, matching add()'s own
+	// "nothing new to propose is left out entirely" rule but for bools
+	// instead of strings. current is deliberately "" rather than "off" -
+	// the same reason FileAssociation candidates use "" below: a non-empty
+	// current reads to cmdImport as "already set, skip unless -overwrite",
+	// which would silently skip every one of these on a plain `import`
+	// with no flags (found via a real end-to-end CLI test failure, not
+	// assumed).
+	addToggle := func(label string, curVal, proposed bool, apply func(*packproject.Project)) {
+		if !proposed || curVal {
+			return
+		}
+		fields = append(fields, importField{label: label, current: "", proposed: "enable", apply: apply})
+	}
+	addToggle("Desktop shortcut (Install Experience)", current.InstallExperience.DesktopShortcut, iss.DesktopShortcut,
+		func(p *packproject.Project) { p.InstallExperience.DesktopShortcut = true })
+	addToggle("Run at startup (Install Experience)", current.InstallExperience.AutostartAtLogin, iss.AutostartAtLogin,
+		func(p *packproject.Project) { p.InstallExperience.AutostartAtLogin = true })
+	addToggle("Launch after install (Install Experience)", current.InstallExperience.LaunchAfterInstall, iss.LaunchAfterInstall,
+		func(p *packproject.Project) { p.InstallExperience.LaunchAfterInstall = true })
+
 	// FileAssociations don't fit add()'s "one scalar value, maybe
 	// overwrite" shape (a project can have any number of them, each an
 	// independent add-or-skip, the same shape Payload candidates already

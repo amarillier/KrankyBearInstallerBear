@@ -11,7 +11,7 @@
 identity:
     name: KrankyBearInstallerBear
     id: com.github.amarillier.KrankyBearInstallerBear
-    version: 0.4.0
+    version: 0.6.0
     publisher: Allan Marillier, 2026-
     vendor: Allan Marillier
     url: https://github.com/amarillier/KrankyBearInstallerBear
@@ -39,13 +39,9 @@ binaries:
       arch: arm64
       path: bin/krankybear-installerbear-linux-arm64
 payload:
-    - source: assets
-      dest: assets
+    - source: assets/i18n
+      dest: assets/i18n
       recursive: true
-      excludes:
-        - mesa-win/*
-    - source: ReleaseNotes.md
-      dest: ""
     - source: assets/mesa-win/opengl32.dll
       dest: mesa-fallback
       os:
@@ -58,6 +54,8 @@ payload:
       dest: mesa-fallback
       os:
         - windows
+    - source: ReleaseNotes.md
+      dest: ""
 install:
     windows: $PROGRAMFILES64\KrankyBearInstallerBear
     macos: /Applications/KrankyBearInstallerBear.app
@@ -68,6 +66,7 @@ install_experience:
 windows:
     upgrade_guid: '{55F17CC0-57CC-43E9-A0A4-84C4AAECADE8}'
     exe_name: KrankyBearInstallerBear.exe
+    install_scope: all_users
 macos:
     bundle_executable: KrankyBear-InstallerBear.exe
 targets:

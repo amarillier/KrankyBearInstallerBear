@@ -40,12 +40,21 @@ type ISSResult struct {
 	// OpenWithProgids form - confirmed against this very repo's own real
 	// Inno/KrankyBearInstallerBear.iss fixture, which uses the latter).
 	FileAssociations []packproject.FileAssociation
+	// DesktopShortcut, AutostartAtLogin, and LaunchAfterInstall propose
+	// enabling InstallerBear's own already-shipped InstallExperience
+	// toggles - recognized from well-known [Tasks]/[Run] conventions (see
+	// installexperience.go's own doc comments for exactly what's
+	// recognized). Always false when nothing recognizable is present;
+	// never used to propose turning a toggle *off*.
+	DesktopShortcut, AutostartAtLogin, LaunchAfterInstall bool
 	// Skipped lists, in human-readable form, everything the parser noticed
 	// but didn't import: unsupported [Files] wildcard forms, DestDir
 	// tokens other than "{app}", [Registry] lines that don't match a
-	// recognized file-association shape, and a count of lines in sections
-	// this importer doesn't understand at all ([Icons]/[Tasks]/[Run]/
-	// [UninstallRun]/[UninstallDelete]).
+	// recognized file-association shape, [Tasks]/[Icons]/[Run]/
+	// [UninstallRun] lines that don't match a recognized
+	// InstallExperience-equivalent shape, [UninstallDelete] lines
+	// resolving outside the install directory, and a count of lines in
+	// any other section this importer doesn't understand at all.
 	Skipped []string
 }
 
@@ -82,12 +91,25 @@ var (
 //     see parseFileAssociations' own doc comment for the two shapes
 //     understood. Any [Registry] line that doesn't fit either shape is
 //     reported in Skipped, not silently dropped.
+//   - [Tasks]/[Run] lines matching a well-known Inno convention that maps
+//     onto one of InstallerBear's own already-shipped InstallExperience
+//     toggles (Desktop shortcut, Run at startup, Launch after install) -
+//     see installexperience.go's own doc comments for exactly what's
+//     recognized in each section. [Icons]/[UninstallRun] lines are also
+//     checked against the same InstallExperience conventions (a Desktop/
+//     Start Menu shortcut icon, or the taskkill line InstallerBear's own
+//     uninstaller already runs unconditionally) purely to avoid
+//     misreporting something already covered as unsupported - neither
+//     section proposes anything on its own. [UninstallDelete] lines
+//     resolving inside the install directory are similarly recognized as
+//     already handled by Setup.exe's uninstaller (though not by .msi's -
+//     see parseUninstallDeleteSection's own doc comment for why). Nothing
+//     outside these specific conventions is guessed at; it's reported in
+//     Skipped like everything else this parser doesn't confidently
+//     understand.
 //
-// Does not handle [Icons], [Tasks], [Run], [UninstallRun], or
-// [UninstallDelete] at all — packproject has no equivalent for any of them
-// yet (desktop-icon opt-in, post-install launch, custom wizard pages, ...).
-// Lines in those sections are counted and reported in Skipped, never
-// silently dropped without a trace.
+// Custom installer wizard pages have no InstallerBear equivalent at all
+// and aren't attempted here.
 func ParseISS(issPath, baseDir string) (ISSResult, error) {
 	f, err := os.Open(issPath)
 	if err != nil {
@@ -108,6 +130,11 @@ func ParseISS(issPath, baseDir string) (ISSResult, error) {
 	setup := map[string]string{}
 	var fileLines []string
 	var registryLines []string
+	var tasksLines []string
+	var iconsLines []string
+	var runLines []string
+	var uninstallRunLines []string
+	var uninstallDeleteLines []string
 	otherSectionLines := 0
 
 	section := ""
@@ -135,6 +162,16 @@ func ParseISS(issPath, baseDir string) (ISSResult, error) {
 			fileLines = append(fileLines, trimmed)
 		case "Registry":
 			registryLines = append(registryLines, trimmed)
+		case "Tasks":
+			tasksLines = append(tasksLines, trimmed)
+		case "Icons":
+			iconsLines = append(iconsLines, trimmed)
+		case "Run":
+			runLines = append(runLines, trimmed)
+		case "UninstallRun":
+			uninstallRunLines = append(uninstallRunLines, trimmed)
+		case "UninstallDelete":
+			uninstallDeleteLines = append(uninstallDeleteLines, trimmed)
 		case "":
 			// preamble (the #define block, comments) — nothing to record
 		default:
@@ -190,9 +227,28 @@ func ParseISS(issPath, baseDir string) (ISSResult, error) {
 			unrecognizedRegistryLines))
 	}
 
+	desktopShortcut, autostartAtLogin, tasksSkipped := parseTasksSection(tasksLines, expand)
+	res.DesktopShortcut = desktopShortcut
+	res.AutostartAtLogin = autostartAtLogin
+	res.Skipped = append(res.Skipped, tasksSkipped...)
+
+	res.Skipped = append(res.Skipped, parseIconsSection(iconsLines, expand)...)
+
+	launchAfterInstall, runSkipped := parseRunSection(runLines, res.ExeName, expand)
+	res.LaunchAfterInstall = launchAfterInstall
+	res.Skipped = append(res.Skipped, runSkipped...)
+
+	res.Skipped = append(res.Skipped, parseUninstallRunSection(uninstallRunLines, res.ExeName, expand)...)
+
+	insideAppCount, uninstallDeleteSkipped := parseUninstallDeleteSection(uninstallDeleteLines, expand)
+	res.Skipped = append(res.Skipped, uninstallDeleteSkipped...)
+	if insideAppCount > 0 {
+		res.Skipped = append(res.Skipped, uninstallDeleteNote(insideAppCount))
+	}
+
 	if otherSectionLines > 0 {
 		res.Skipped = append(res.Skipped, fmt.Sprintf(
-			"%d line(s) in [Icons]/[Tasks]/[Run]/[UninstallRun]/[UninstallDelete] were not imported (no matching InstallerBear feature yet)",
+			"%d line(s) in other unrecognized .iss sections were not imported",
 			otherSectionLines))
 	}
 

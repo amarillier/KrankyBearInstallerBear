@@ -68,6 +68,20 @@ func TestParseISS_RealFixture(t *testing.T) {
 	if res.WindowsBinary != "bin/KrankyBearInstallerBear.exe" {
 		t.Errorf("WindowsBinary = %q, want bin/KrankyBearInstallerBear.exe", res.WindowsBinary)
 	}
+	// This fixture's own [Tasks]/[Run] entries (desktopicon, startup,
+	// a postinstall Run of the app's own exe) map onto InstallerBear's
+	// already-shipped InstallExperience toggles - see
+	// installexperience.go's own doc comments for exactly what's
+	// recognized.
+	if !res.DesktopShortcut {
+		t.Error("expected DesktopShortcut = true (the fixture's own [Tasks] \"desktopicon\" entry)")
+	}
+	if !res.AutostartAtLogin {
+		t.Error("expected AutostartAtLogin = true (the fixture's own [Tasks] \"startup\" entry)")
+	}
+	if !res.LaunchAfterInstall {
+		t.Error("expected LaunchAfterInstall = true (the fixture's own [Run] postinstall entry)")
+	}
 
 	// The icon is already modeled via IconICO — its [Files] line must not
 	// also turn into a Payload candidate.

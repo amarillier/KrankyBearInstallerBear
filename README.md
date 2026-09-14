@@ -21,6 +21,16 @@ fixing and performance work.
   the window title reflecting the project name and unsaved-changes state.
 - Open is lenient (a work-in-progress project can be reopened even if incomplete);
   Save-before-build always validates first.
+- Hand-typed `#` comments in `installerbear.yaml` survive an Open/Save
+  round-trip — useful for notes, or temporarily commenting out a
+  payload/binary/file-association entry. Manual-editing only: there's no
+  GUI for adding or editing a comment, this just stops the app from
+  silently deleting one you typed directly into the file. Best-effort —
+  each entry's comment is matched back by a natural key (a Payload
+  entry's `source`, a Binary's `os`+`arch`, a File Association's
+  `extension`) rather than by position, so it survives reordering, but a
+  comment attached to something since deleted has nothing left to attach
+  to and is dropped.
 - **New Sample Project...** (File menu + tray) writes a real, fully-featured
   example `installerbear.yaml` to a location you pick and opens it — a
   working starting point for anyone who'd rather adapt a real config than
@@ -29,6 +39,20 @@ fixing and performance work.
   installers); falls back to a generated example (with a freshly minted
   Windows UpgradeGUID) if that bundled file isn't present, e.g. running
   from source.
+- **Import Existing Config...** (File menu, plus `installerbear import
+  -source <dir> -p installerbear.yaml` on the CLI) best-effort-imports an
+  existing Inno Setup `.iss` and/or KrankyBear-template
+  `build-config.sh`/`package.sh` into the current project — Identity,
+  Windows Upgrade GUID/exe name, bundle ID, Linux desktop metadata,
+  Payload entries, File Associations (from `[Registry]`), and Install
+  Experience toggles (Desktop shortcut/Run at startup/Launch after install,
+  recognized from `[Tasks]`/`[Run]`). A review step (GUI) or `-dry-run`
+  (CLI) shows current → proposed for every field before anything is
+  applied; re-running is safe and won't duplicate what's already there.
+  `[Icons]`/`[UninstallRun]`/`[UninstallDelete]` lines that are already
+  covered by InstallerBear's own default behavior are recognized as such
+  rather than reported as unsupported; custom installer wizard pages and
+  anything else outside these conventions aren't imported.
 
 ### Identity tab
 
@@ -66,6 +90,26 @@ fixing and performance work.
 - **Hooks**: `pre_install`/`post_uninstall` — inline shell script text run on
   the *target* machine, baked into the macOS `.pkg`/Linux `.deb`/`.rpm`
   package itself and executed later by its own install/uninstall action.
+  Windows has no equivalent (NSIS/MSI have no shell interpreter to run
+  script text in at all) — these two fields are silently ignored by
+  `Setup.exe`/`.msi`, no note logged, since it's plain unavailable rather
+  than a setting that could apply but doesn't.
+  - `pre_install` runs before files are installed, on both macOS (`.pkg`'s
+    own `preinstall` script) and Linux (`.deb`/`.rpm`'s own `preinst`).
+  - `post_uninstall` runs after removal, but **Linux only** — a `.pkg`
+    install has no OS-level uninstall action at all for anything to hook
+    into, so this field has no effect on macOS (a clear progress note is
+    logged during a macOS build when it's set). On Linux, InstallerBear's
+    own desktop-database/icon-cache/mime-database refresh commands (see
+    the `.desktop`-file and File Associations sections above) run
+    *after* your own hook content, in the same script — keep this one to
+    plain POSIX shell (see below) so those still work.
+  - By default the text runs under `/bin/sh` (a `#!/bin/sh` + `set -e`
+    header is added automatically). Start your own text with a shebang
+    line (e.g. `#!/usr/bin/env python3`, `#!/bin/bash`) to use a different
+    interpreter instead, exactly like a normal script file — InstallerBear
+    only prepends the default header when your text doesn't already start
+    with `#!`.
 - Output directory, filename template, and **Post-build hook**
   (`output.post_build_hook`) — inline shell script text run once, immediately,
   on *this* build machine right after a successful build, with each built

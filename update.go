@@ -15,6 +15,7 @@ import (
 )
 
 var updateWindow fyne.Window
+var updateManagedWindow *managedWindow // hide-all/show-all tracking, see windowregistry.go
 
 // aheadOfLatestRelease caches the most recent update check's verdict on
 // whether this build is newer than the latest published GitHub release (an
@@ -68,11 +69,13 @@ func showUpdateDialog(a fyne.App, message string, updateAvailable bool, ahead bo
 	if updateWindow != nil && updateWindow.Content().Visible() {
 		updateWindow.Show()
 		updateWindow.RequestFocus()
+		updateManagedWindow.open = true
 		return
 	}
 
 	updateWindow = a.NewWindow(appName + " - Update Check")
 	updateWindow.SetIcon(resourceKrankyBearInstallerBearPng)
+	updateManagedWindow = registerManagedWindow(updateWindow)
 
 	// ImageFillContain via newBrandingDialogImage keeps this at
 	// brandingImageSizeDialog regardless of the source PNG's native
@@ -120,9 +123,11 @@ func showUpdateDialog(a fyne.App, message string, updateAvailable bool, ahead bo
 	updateWindow.Resize(fyne.NewSize(480, 420))
 
 	updateWindow.SetCloseIntercept(func() {
+		updateManagedWindow.open = false
 		updateWindow.Hide()
 	})
 
+	updateManagedWindow.open = true
 	updateWindow.Show()
 }
 

@@ -1,7 +1,7 @@
 identity:
     name: KrankyBearInstallerBear
     id: com.github.amarillier.KrankyBearInstallerBear
-    version: 0.5.0
+    version: 0.6.0
     publisher: Allan Marillier, 2026-
     vendor: Allan Marillier
     url: https://github.com/amarillier/KrankyBearInstallerBear
@@ -29,15 +29,9 @@ binaries:
       arch: arm64
       path: bin/krankybear-installerbear-linux-arm64
 payload:
-    - source: assets
-      dest: assets
+    - source: assets/i18n
+      dest: assets/i18n
       recursive: true
-      excludes:
-        - mesa-win/*
-    - source: ReleaseNotes.md
-      dest: ""
-    - source: sample-installerbear.yaml
-      dest: ""
     - source: assets/mesa-win/opengl32.dll
       dest: mesa-fallback
       os:
@@ -50,8 +44,8 @@ payload:
       dest: mesa-fallback
       os:
         - windows
-    - source: installerbear.yaml
-      dest: installerbear.yaml
+    - source: ReleaseNotes.md
+      dest: ""
 install:
     windows: $PROGRAMFILES64\KrankyBearInstallerBear
     macos: /Applications/KrankyBearInstallerBear.app
@@ -65,9 +59,6 @@ windows:
     install_scope: all_users
 macos:
     bundle_executable: KrankyBear-InstallerBear.exe
-linux:
-    desktop_categories: Development
-    desktop_comment: Packaging application
 targets:
     - deb
     - rpm
@@ -75,9 +66,6 @@ targets:
     - winexe
     - winmsi
 output:
-    dir: ./bearinstallers
+    dir: ./installers
     filename_template: '{{.Identity.Name}}_{{.Identity.Version}}_{{.Arch}}'
     clean_old_versions: true
-file_associations:
-    - extension: .yaml
-      description: Yaml configs for InstallerBear

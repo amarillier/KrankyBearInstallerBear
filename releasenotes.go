@@ -10,6 +10,7 @@ import (
 )
 
 var releaseNotesWindow fyne.Window
+var releaseNotesManagedWindow *managedWindow // hide-all/show-all tracking, see windowregistry.go
 
 // releaseNotesFileNames are tried in order, both as siblings of the
 // running executable. .md variants first: rendered through Fyne's own
@@ -62,11 +63,13 @@ func showReleaseNotes(a fyne.App) {
 	if releaseNotesWindow != nil && releaseNotesWindow.Content().Visible() {
 		releaseNotesWindow.Show()
 		releaseNotesWindow.RequestFocus()
+		releaseNotesManagedWindow.open = true
 		return
 	}
 
 	releaseNotesWindow = a.NewWindow(appName + " - Release Notes")
 	releaseNotesWindow.SetIcon(resourceKrankyBearInstallerBearPng)
+	releaseNotesManagedWindow = registerManagedWindow(releaseNotesWindow)
 
 	loadingBar := widget.NewProgressBarInfinite()
 	loading := container.NewVBox(
@@ -84,7 +87,11 @@ func showReleaseNotes(a fyne.App) {
 
 	releaseNotesWindow.SetContent(container.NewPadded(container.NewBorder(header, nil, nil, nil, scroll)))
 	releaseNotesWindow.Resize(fyne.NewSize(760, 620))
-	releaseNotesWindow.SetCloseIntercept(func() { releaseNotesWindow.Hide() })
+	releaseNotesWindow.SetCloseIntercept(func() {
+		releaseNotesManagedWindow.open = false
+		releaseNotesWindow.Hide()
+	})
+	releaseNotesManagedWindow.open = true
 	releaseNotesWindow.Show()
 
 	go func() {

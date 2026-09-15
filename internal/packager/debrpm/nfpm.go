@@ -10,7 +10,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/goreleaser/nfpm/v2"
@@ -151,7 +150,7 @@ func buildInfo(proj *packproject.Project, arch string, bin packproject.BinaryEnt
 	}
 
 	for _, entry := range proj.Payload {
-		if len(entry.OS) > 0 && !slices.Contains(entry.OS, "linux") {
+		if !entry.AppliesToOS("linux", arch) {
 			continue
 		}
 

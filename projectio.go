@@ -66,7 +66,7 @@ func (e *editor) confirmDiscardIfDirty(proceed func()) {
 // untouched. Asks first if the current project has unsaved changes.
 func (e *editor) newProject() {
 	e.confirmDiscardIfDirty(func() {
-		dialog.NewFolderOpen(func(u fyne.ListableURI, err error) {
+		fd := dialog.NewFolderOpen(func(u fyne.ListableURI, err error) {
 			if err != nil || u == nil {
 				return
 			}
@@ -75,7 +75,12 @@ func (e *editor) newProject() {
 			e.applyScannedDefaults(u.Path())
 			e.refreshAll()
 			e.markSaved()
-		}, e.win).Show()
+			rememberProjectDir(e.app, u.Path())
+		}, e.win)
+		if loc := dialogStartLocation(e.app, false); loc != nil {
+			fd.SetLocation(loc)
+		}
+		fd.Show()
 	})
 }
 
@@ -211,8 +216,12 @@ func (e *editor) openProject() {
 			e.path = path
 			e.refreshAll()
 			e.markSaved()
+			rememberProjectDir(e.app, filepath.Dir(path))
 		}, e.win)
 		fd.SetFilter(storage.NewExtensionFileFilter([]string{".yaml", ".yml"}))
+		if loc := dialogStartLocation(e.app, false); loc != nil {
+			fd.SetLocation(loc)
+		}
 		fd.Show()
 	})
 }
@@ -252,8 +261,12 @@ func (e *editor) saveProjectAs() {
 		e.proj.BaseDir = filepath.Dir(path)
 		e.markSaved()
 		e.updateWindowTitle()
+		rememberProjectDir(e.app, filepath.Dir(path))
 	}, e.win)
 	fd.SetFileName("installerbear.yaml")
 	fd.SetFilter(storage.NewExtensionFileFilter([]string{".yaml", ".yml"}))
+	if loc := dialogStartLocation(e.app, true); loc != nil {
+		fd.SetLocation(loc)
+	}
 	fd.Show()
 }

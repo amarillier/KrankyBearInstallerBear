@@ -51,6 +51,10 @@ func (p *Project) Validate(baseDir string) error {
 		errs = append(errs, err)
 	}
 
+	if err := validateMacBundleExecutable(p); err != nil {
+		errs = append(errs, err)
+	}
+
 	if p.Windows.InstallScope != "" && p.Windows.InstallScope != InstallScopeAllUsers && p.Windows.InstallScope != InstallScopeCurrentUser {
 		errs = append(errs, fmt.Errorf("windows.install_scope %q is not valid (want %q or %q)",
 			p.Windows.InstallScope, InstallScopeAllUsers, InstallScopeCurrentUser))
@@ -127,6 +131,31 @@ func validateWindowsExeName(p *Project) error {
 	return errors.Join(errs...)
 }
 
+// validateMacBundleExecutable catches a real config mistake found via
+// Allan's own hands-on macOS testing: `macos.bundle_executable` had a
+// stray ".exe" suffix left over from copy-pasting/deriving it alongside
+// `windows.exe_name` - harmless in that the binary still gets copied and
+// launches fine under that name (macpkg's own copy step doesn't care what
+// the filename looks like), but ".exe" is a pure Windows-ism that never
+// belongs on a macOS executable, and would look wrong to anyone poking
+// around inside the installed .app bundle (`Contents/MacOS/<name>.exe`
+// next to a real Mach-O binary). A cheap, unambiguous check - unlike
+// validateWindowsExeName's mismatch case, there's no legitimate reason
+// for this suffix to ever be intentional.
+func validateMacBundleExecutable(p *Project) error {
+	if p.MacOS.BundleExecutable == "" {
+		return nil
+	}
+	if strings.HasSuffix(strings.ToLower(p.MacOS.BundleExecutable), ".exe") {
+		withoutExt := p.MacOS.BundleExecutable[:len(p.MacOS.BundleExecutable)-len(".exe")]
+		return fmt.Errorf(
+			"macos.bundle_executable %q ends in \".exe\" - that's a Windows-only convention, not a macOS one; "+
+				"drop the extension (e.g. %q)",
+			p.MacOS.BundleExecutable, withoutExt)
+	}
+	return nil
+}
+
 func isKnownTarget(t string) bool {
 	for _, known := range AllTargets {
 		if t == known {
@@ -156,6 +185,21 @@ func needsWindowsGUID(targets []string) bool {
 // "LICENSE" directory, say).
 func validatePayload(entries []PayloadEntry, baseDir string) error {
 	var errs []error
+
+	// Validate against the expanded, literal result - a glob pattern's
+	// own existence/collision/recursive-vs-file checks only make sense
+	// per actual match, not against the pattern text itself. Skipped
+	// entirely when baseDir == "" (this func's own existence/symlink
+	// checks below are already skipped in that case too - nothing to
+	// glob-match against without a real directory to resolve against).
+	if baseDir != "" {
+		if expanded, err := ExpandedPayload(entries, baseDir); err != nil {
+			errs = append(errs, err)
+		} else {
+			entries = expanded
+		}
+	}
+
 	seenDest := make(map[string]string, len(entries))
 
 	for _, e := range entries {

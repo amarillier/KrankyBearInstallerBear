@@ -54,8 +54,24 @@ FEATURES:
   architecture for an OS to get multi-arch output automatically. "Scan
   folder..." can guess several of these at once from filename conventions.
 • Payload tab - bundle extra files/folders alongside the binary, with
-  recursive copy and OS filtering. "Scan folder..." proposes entries from a
-  directory for you to review before anything is added.
+  recursive copy, OS filtering, and Excludes - all directly editable in the
+  table. The leftmost Select column's checkboxes drive Remove (any number
+  at once) and Edit... (needs exactly one checked). Click the Source, Dest,
+  or OS column header to sort by it (click again to reverse) - this
+  actually reorders the entries (your # comments stay attached to the
+  right entry across a sort), so the saved file ends up sorted too, not
+  just the on-screen view. "Scan folder..." proposes entries from a
+  directory for you to review before anything is added. Source can be a
+  glob pattern (*.yaml) instead of a literal path - resolved fresh each
+  build; matching nothing isn't an error. Excludes (comma-separated glob
+  patterns) also filters which matches are included, not just what's
+  skipped inside a recursive copy. OS filter can scope by architecture too
+  (windows/arm64) and accepts mac/macos as aliases for darwin; the Add/Edit
+  dialog offers this as a checkbox grid (Windows/macOS/Linux x amd64/arm64,
+  plus an "any arch" box per OS) instead of free-text typing, so one entry
+  can target several specific OS/arch combos with no typo risk - the
+  inline table cell still shows/accepts the same thing as plain text for a
+  quick glance or tweak.
 • File Associations tab - register the app to open file extensions
   (Windows registry entries / Windows .msi ProgId / Linux shared-mime-info
   + .desktop MimeType=). Works on macOS too when the project has a real
@@ -93,6 +109,11 @@ SMART FEATURES:
 ✨ Window size is remembered across launches.
 ✨ Toolbar buttons for New/Open/Save/Save As sit above the tabs, alongside
   the File menu.
+✨ New/New Sample Project/Open start browsing beside the app itself the
+  first time (where ReleaseNotes.md/sample-installerbear.yaml already
+  live), not your home folder; Save As starts in your home folder the
+  first time instead. After that, all four remember and reuse the last
+  folder actually used.
 ✨ Tray "Show/Hide All Windows" brings back or hides the whole window stack
   (main window plus any open About/Help/Update window) in one click.
 ✨ New Sample Project... (File menu + tray) writes a real, fully-featured

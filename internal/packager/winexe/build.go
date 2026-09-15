@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"installerbear/internal/packager"
@@ -107,7 +106,7 @@ func (p winexePackager) Build(ctx context.Context, proj *packproject.Project, op
 		data.LicenseSource = proj.ResolvePath(proj.Identity.LicenseFile)
 	}
 	for _, entry := range proj.Payload {
-		if len(entry.OS) > 0 && !slices.Contains(entry.OS, "windows") {
+		if !entry.AppliesToOS("windows", arch) {
 			continue
 		}
 		destDir := strings.ReplaceAll(filepath.ToSlash(filepath.Clean(entry.Dest)), "/", `\`)

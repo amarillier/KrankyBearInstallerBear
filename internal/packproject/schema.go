@@ -80,20 +80,42 @@ type BinaryEntry struct {
 // relative to the per-OS install root in InstallLocations. This is the direct
 // analogue of today's Inno [Files] entries / fpm src=dest arguments.
 type PayloadEntry struct {
+	// Source may be a literal path, or a filepath.Match glob pattern (any
+	// of "*", "?", "[" present) - the same pattern dialect Excludes
+	// already uses, deliberately, rather than introducing a second one a
+	// project author would need to learn. A pattern is resolved against
+	// BaseDir once per build (see ExpandedPayload) into one concrete
+	// PayloadEntry per match, each inheriting this entry's own Dest/
+	// Recursive/OS/Excludes - every backend under internal/packager only
+	// ever sees the expanded, literal result, never the pattern itself.
+	// Matching zero files is not an error - a pattern is inherently
+	// "whatever's there right now," not a promise something will be.
 	Source string `yaml:"source"`
 	// Dest is always a destination *directory*, relative to the install
 	// root ("" for the root itself) — for both a Recursive entry (Source's
 	// own contents land under it) and a single-file entry (the installed
 	// filename is always Source's own basename, never taken from Dest).
 	// Every backend under internal/packager must honor this the same way.
-	Dest      string   `yaml:"dest"`
-	Recursive bool     `yaml:"recursive,omitempty"`
-	OS        []string `yaml:"os,omitempty"` // empty = all OSes
-	Mode      string   `yaml:"mode,omitempty"`
+	Dest      string `yaml:"dest"`
+	Recursive bool   `yaml:"recursive,omitempty"`
+	// OS restricts this entry to specific OSes/arches - see AppliesToOS
+	// (osmatch.go) for exactly how each value is matched. Empty means
+	// every OS/arch, unchanged from before arch-scoping existed. A bare
+	// OS name ("windows") matches every arch of that OS; an "os/arch"
+	// pair ("windows/arm64") matches only that exact arch, the same
+	// slash convention Docker's --platform/`go tool dist list` already
+	// use. "mac"/"macos" (case-insensitive) are accepted as aliases for
+	// "darwin" on either side of the slash.
+	OS   []string `yaml:"os,omitempty"`
+	Mode string   `yaml:"mode,omitempty"`
 	// Excludes lists filepath.Match glob patterns (matched against each
 	// file's path relative to Source) skipped when copying a Recursive
 	// entry — the analogue of Inno's [Files] "Excludes:" attribute. Ignored
-	// when Recursive is false.
+	// for a literal (non-glob) non-recursive entry, since there's nothing
+	// to filter out of a single file; for a *glob-pattern* Source though,
+	// Excludes also filters candidates out of the match set itself, even
+	// when Recursive is false - "include broadly via Source, exclude
+	// specifically via Excludes" for a flat set of matched files.
 	Excludes []string `yaml:"excludes,omitempty"`
 }
 

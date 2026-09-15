@@ -55,12 +55,31 @@ type editor struct {
 	binaryFields []binaryField
 
 	// Payload tab
-	payloadTable           *widget.Table
-	lastSelectedPayloadRow int // -1 when nothing is selected; see payloadtable.go
+	payloadTable *widget.Table
+	// payloadSelected tracks the Select column's own checked state per row
+	// (row index -> checked) - NOT part of packproject.Project, purely
+	// which rows Remove/Edit... currently act on. widget.Table's own
+	// row-selection (OnSelected/OnUnselected) never fires for a cell that
+	// contains its own interactive widget (every cell here does - Fyne's
+	// hit-testing dispatches a click to the deepest matching object under
+	// the pointer, which is always the cell's Entry/Check, not the Table
+	// itself), so a dedicated checkbox column is the real fix, not a
+	// tweak to that mechanism - see payloadtable.go's own comment on this.
+	payloadSelected map[int]bool
+	// payloadSortCol/payloadSortAsc track which Payload column (if any) the
+	// table is currently sorted by - clicking a sortable header (Source,
+	// Dest, OS) reorders e.proj.Payload itself (not just the view), since
+	// comment-preservation (see internal/packproject/comments.go) matches
+	// entries by content rather than position, so a hand-typed # comment
+	// stays attached to its entry across a sort. -1 means unsorted (rows
+	// stay in whatever order they were added/loaded in).
+	payloadSortCol int
+	payloadSortAsc bool
 
 	// File Associations tab
-	fileAssocTable           *widget.Table
-	lastSelectedFileAssocRow int // -1 when nothing is selected; see fileassoctable.go
+	fileAssocTable *widget.Table
+	// fileAssocSelected mirrors payloadSelected above, same reason.
+	fileAssocSelected map[int]bool
 
 	// Build tab
 	targetChecks          map[string]*widget.Check
@@ -84,8 +103,9 @@ func newEditor(a fyne.App, win fyne.Window) *editor {
 	}
 	e.targetChecks = make(map[string]*widget.Check)
 	e.targetStatus = make(map[string]*widget.Label)
-	e.lastSelectedPayloadRow = -1
-	e.lastSelectedFileAssocRow = -1
+	e.payloadSelected = make(map[int]bool)
+	e.fileAssocSelected = make(map[int]bool)
+	e.payloadSortCol = -1
 	return e
 }
 
@@ -123,6 +143,15 @@ func (e *editor) buildToolbar() fyne.CanvasObject {
 // own OnChanged, which just writes the same value straight back into
 // e.proj — harmless, and simpler than trying to suppress it.
 func (e *editor) refreshAll() {
+	// Row indices in these maps only ever mean anything relative to
+	// whatever e.proj.Payload/FileAssociations looked like when they were
+	// set - every caller of refreshAll has just replaced or bulk-merged
+	// e.proj wholesale (New/Open/New Sample Project/Import), so any
+	// leftover selection state from before is stale and must not survive.
+	e.payloadSelected = make(map[int]bool)
+	e.fileAssocSelected = make(map[int]bool)
+	e.payloadSortCol = -1
+
 	e.refreshIdentityTab()
 	e.refreshBinariesTab()
 	e.refreshPayloadTab()

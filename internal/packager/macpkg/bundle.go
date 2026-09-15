@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"installerbear/internal/packager"
@@ -58,7 +57,7 @@ func BuildAppBundle(proj *packproject.Project, arch, destDir string) (string, er
 	}
 
 	for _, entry := range proj.Payload {
-		if len(entry.OS) > 0 && !slices.Contains(entry.OS, "darwin") {
+		if !entry.AppliesToOS("darwin", arch) {
 			continue
 		}
 		src := proj.ResolvePath(entry.Source)

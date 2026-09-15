@@ -43,6 +43,30 @@ func targetOS(t Target) string {
 // the GUI already share, so neither caller needs to remember a separate
 // step to get it.
 func Run(ctx context.Context, proj *packproject.Project, pkgrs []Packager, onEvent ProgressFunc) []BuildResult {
+	// Resolve any Payload glob pattern (see packproject.ExpandedPayload's
+	// own doc comment) into its concrete matches once, up front, on a
+	// shallow copy of proj — never the caller's own *proj, whose Payload
+	// is what the GUI edits and saves back to installerbear.yaml as the
+	// original pattern text, not today's expansion of it. Every backend's
+	// own Build below only ever sees the already-expanded, literal
+	// result, exactly as if the project had been authored with each
+	// match spelled out by hand - no backend needs to know wildcards
+	// exist at all. Validate (already run by both the GUI and the CLI
+	// before Run is ever reached) exercises the same expansion, so a
+	// bad glob pattern should already have been caught there; this is
+	// just defensive.
+	expanded, err := proj.ExpandedPayload()
+	if err != nil {
+		var results []BuildResult
+		for _, pkgr := range pkgrs {
+			results = append(results, BuildResult{Target: pkgr.Target(), Err: fmt.Errorf("expanding payload: %w", err)})
+		}
+		return results
+	}
+	projCopy := *proj
+	projCopy.Payload = expanded
+	proj = &projCopy
+
 	var results []BuildResult
 
 	for _, pkgr := range pkgrs {

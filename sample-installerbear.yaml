@@ -11,7 +11,7 @@
 identity:
     name: KrankyBearInstallerBear
     id: com.github.amarillier.KrankyBearInstallerBear
-    version: 0.6.0
+    version: 0.7.0
     publisher: Allan Marillier, 2026-
     vendor: Allan Marillier
     url: https://github.com/amarillier/KrankyBearInstallerBear
@@ -54,6 +54,25 @@ payload:
       dest: mesa-fallback
       os:
         - windows
+    # NOTE always set dest empty for files in the app directory, do not use file name as dest, dest is directory relative to the install location
+    - source: installerbear.yaml
+      dest: ""
+    - source: sample-installerbear.yaml
+      dest: ""
+    # Alternative to the two explicit .yaml entries above: source can be a
+    # glob pattern instead of a literal path, so one entry can bundle
+    # every .yaml file in the project directory without listing each one
+    # by hand - handy once you have more than a couple. excludes filters
+    # out specific matches you don't want swept up along with the rest.
+    # Commented out here since having both this AND the two explicit
+    # entries above active at once would try to install
+    # installerbear.yaml/sample-installerbear.yaml twice each, colliding
+    # as a duplicate destination - pick one approach or the other, not
+    # both at the same time.
+    # - source: "*.yaml"
+    #   dest: ""
+    #   excludes:
+    #     - sample-installerbear.yaml
     - source: ReleaseNotes.md
       dest: ""
 install:
@@ -68,7 +87,7 @@ windows:
     exe_name: KrankyBearInstallerBear.exe
     install_scope: all_users
 macos:
-    bundle_executable: KrankyBear-InstallerBear.exe
+    bundle_executable: KrankyBearInstallerBear
 targets:
     - deb
     - rpm

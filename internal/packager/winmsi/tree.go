@@ -5,7 +5,6 @@ import (
 	"hash/fnv"
 	"io/fs"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"installerbear/internal/packproject"
@@ -80,7 +79,7 @@ func buildDirTree(proj *packproject.Project, bin packproject.BinaryEntry) (root 
 	}
 
 	for _, entry := range proj.Payload {
-		if len(entry.OS) > 0 && !slices.Contains(entry.OS, "windows") {
+		if !entry.AppliesToOS("windows", bin.Arch) {
 			continue
 		}
 		src := proj.ResolvePath(entry.Source)

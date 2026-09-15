@@ -70,6 +70,31 @@ func TestValidate_WindowsExeNameMatchingBinaryIsFine(t *testing.T) {
 	}
 }
 
+// TestValidate_MacBundleExecutableRejectsExeSuffix is a regression test
+// for a real config mistake found via Allan's own hands-on macOS testing:
+// macos.bundle_executable carried a stray ".exe" suffix (copy-pasted
+// alongside windows.exe_name) - harmless functionally (the binary still
+// launched fine under that name), but ".exe" never belongs on a macOS
+// executable.
+func TestValidate_MacBundleExecutableRejectsExeSuffix(t *testing.T) {
+	p := validProject()
+	p.MacOS.BundleExecutable = "TestApp.exe"
+
+	err := p.Validate("")
+	if err == nil || !strings.Contains(err.Error(), `bundle_executable "TestApp.exe" ends in ".exe"`) {
+		t.Fatalf("expected a bundle_executable .exe-suffix error, got %v", err)
+	}
+}
+
+func TestValidate_MacBundleExecutableWithoutExeSuffixIsFine(t *testing.T) {
+	p := validProject()
+	p.MacOS.BundleExecutable = "TestApp"
+
+	if err := p.Validate(""); err != nil {
+		t.Fatalf("expected no error for a plain bundle_executable: %v", err)
+	}
+}
+
 func TestValidate_InstallScopeUnknownValueRejected(t *testing.T) {
 	p := validProject()
 	p.Windows.InstallScope = "everyone-please"
@@ -230,6 +255,40 @@ func TestValidate_PayloadValidSourcePasses(t *testing.T) {
 	p.Payload = []PayloadEntry{{Source: "a.txt", Dest: "a.txt"}}
 	if err := p.Validate(dir); err != nil {
 		t.Fatalf("valid payload should pass: %v", err)
+	}
+}
+
+// TestValidate_PayloadGlobPatternValidatesEachMatch confirms Validate
+// checks the *expanded* result of a glob-pattern Source, not the pattern
+// text itself - a directory matched by a non-recursive glob should still
+// be caught as a real error, exactly like a literal directory Source
+// would be.
+func TestValidate_PayloadGlobPatternValidatesEachMatch(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.yaml"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "b.yaml"), 0o755); err != nil { // a directory, not a file
+		t.Fatal(err)
+	}
+	p := validProject()
+	p.Payload = []PayloadEntry{{Source: "*.yaml", Dest: ""}}
+
+	err := p.Validate(dir)
+	if err == nil || !strings.Contains(err.Error(), "is a directory but not marked recursive") {
+		t.Fatalf("expected the directory match to fail validation, got %v", err)
+	}
+}
+
+// TestValidate_PayloadGlobMatchingNothingPasses confirms a pattern with
+// zero current matches is not itself a validation error - see
+// PayloadEntry's own doc comment on why.
+func TestValidate_PayloadGlobMatchingNothingPasses(t *testing.T) {
+	dir := t.TempDir()
+	p := validProject()
+	p.Payload = []PayloadEntry{{Source: "*.nonexistent", Dest: ""}}
+	if err := p.Validate(dir); err != nil {
+		t.Fatalf("a glob matching nothing should not fail validation: %v", err)
 	}
 }
 

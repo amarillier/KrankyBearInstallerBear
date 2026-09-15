@@ -27,12 +27,38 @@ func cellWidgets(t *testing.T, obj fyne.CanvasObject) (*widget.Entry, *widget.Ch
 	return entry, check
 }
 
+// TestPayloadCell_EditsSelectInPlace confirms the Select column (col 0)
+// writes into e.payloadSelected, not e.proj.Payload itself - see
+// mainwindow.go's own field doc comment for why this is kept separate
+// from project data.
+func TestPayloadCell_EditsSelectInPlace(t *testing.T) {
+	e := newTestEditor(t)
+	e.proj.Payload = []packproject.PayloadEntry{{Source: "a.txt"}}
+
+	cell := newPayloadCell()
+	e.updatePayloadCell(widget.TableCellID{Row: 0, Col: 0}, cell)
+	_, check := cellWidgets(t, cell)
+	if check.Checked {
+		t.Fatal("expected the Select box to start unchecked")
+	}
+
+	check.SetChecked(true)
+	if !e.payloadSelected[0] {
+		t.Error("expected row 0 to be marked selected after checking the box")
+	}
+
+	check.SetChecked(false)
+	if e.payloadSelected[0] {
+		t.Error("expected row 0 to be cleared from payloadSelected after unchecking the box")
+	}
+}
+
 func TestPayloadCell_EditsSourceAndDestInPlace(t *testing.T) {
 	e := newTestEditor(t)
 	e.proj.Payload = []packproject.PayloadEntry{{Source: "a.txt", Dest: "docs"}}
 
 	sourceCell := newPayloadCell()
-	e.updatePayloadCell(widget.TableCellID{Row: 0, Col: 0}, sourceCell)
+	e.updatePayloadCell(widget.TableCellID{Row: 0, Col: 1}, sourceCell)
 	entry, _ := cellWidgets(t, sourceCell)
 	entry.SetText("b.txt")
 	if e.proj.Payload[0].Source != "b.txt" {
@@ -40,7 +66,7 @@ func TestPayloadCell_EditsSourceAndDestInPlace(t *testing.T) {
 	}
 
 	destCell := newPayloadCell()
-	e.updatePayloadCell(widget.TableCellID{Row: 0, Col: 1}, destCell)
+	e.updatePayloadCell(widget.TableCellID{Row: 0, Col: 2}, destCell)
 	entry, _ = cellWidgets(t, destCell)
 	entry.SetText("assets")
 	if e.proj.Payload[0].Dest != "assets" {
@@ -53,7 +79,7 @@ func TestPayloadCell_TogglesRecursiveInPlace(t *testing.T) {
 	e.proj.Payload = []packproject.PayloadEntry{{Source: "assets", Dest: "assets", Recursive: false}}
 
 	cell := newPayloadCell()
-	e.updatePayloadCell(widget.TableCellID{Row: 0, Col: 2}, cell)
+	e.updatePayloadCell(widget.TableCellID{Row: 0, Col: 3}, cell)
 	_, check := cellWidgets(t, cell)
 	if check.Checked {
 		t.Fatal("expected the check to start unchecked, matching Recursive: false")
@@ -70,7 +96,7 @@ func TestPayloadCell_EditsOSFilterInPlace(t *testing.T) {
 	e.proj.Payload = []packproject.PayloadEntry{{Source: "a", Dest: "a", OS: []string{"windows"}}}
 
 	cell := newPayloadCell()
-	e.updatePayloadCell(widget.TableCellID{Row: 0, Col: 3}, cell)
+	e.updatePayloadCell(widget.TableCellID{Row: 0, Col: 4}, cell)
 	entry, _ := cellWidgets(t, cell)
 	if entry.Text != "windows" {
 		t.Fatalf("expected the cell to start populated with %q, got %q", "windows", entry.Text)
@@ -79,6 +105,44 @@ func TestPayloadCell_EditsOSFilterInPlace(t *testing.T) {
 	entry.SetText("darwin,linux")
 	if got := e.proj.Payload[0].OS; len(got) != 2 || got[0] != "darwin" || got[1] != "linux" {
 		t.Errorf("OS = %v, want [darwin linux]", got)
+	}
+}
+
+func TestPayloadCell_EditsExcludesInPlace(t *testing.T) {
+	e := newTestEditor(t)
+	e.proj.Payload = []packproject.PayloadEntry{{Source: "assets", Dest: "assets", Excludes: []string{"mesa-win/*"}}}
+
+	cell := newPayloadCell()
+	e.updatePayloadCell(widget.TableCellID{Row: 0, Col: 5}, cell)
+	entry, _ := cellWidgets(t, cell)
+	if entry.Text != "mesa-win/*" {
+		t.Fatalf("expected the cell to start populated with %q, got %q", "mesa-win/*", entry.Text)
+	}
+
+	entry.SetText("*.tmp,*.bak")
+	if got := e.proj.Payload[0].Excludes; len(got) != 2 || got[0] != "*.tmp" || got[1] != "*.bak" {
+		t.Errorf("Excludes = %v, want [*.tmp *.bak]", got)
+	}
+}
+
+// TestPayloadCell_DestPlaceholderDoesNotLeakIntoOtherColumns is a
+// regression test for the same recycled-cell hazard as
+// TestPayloadCell_RebindingDoesNotLeakIntoThePreviousRow, but for
+// PlaceHolder specifically: it's a static property of the recycled Entry,
+// not tied to any one row/column, so binding a cell to the Dest column
+// (which sets a "(install root)" placeholder) and then rebinding the same
+// object to Source must not leave that placeholder behind.
+func TestPayloadCell_DestPlaceholderDoesNotLeakIntoOtherColumns(t *testing.T) {
+	e := newTestEditor(t)
+	e.proj.Payload = []packproject.PayloadEntry{{Source: "a.txt", Dest: ""}}
+
+	cell := newPayloadCell()
+	e.updatePayloadCell(widget.TableCellID{Row: 0, Col: 2}, cell) // Dest - sets a placeholder
+	e.updatePayloadCell(widget.TableCellID{Row: 0, Col: 1}, cell) // recycled for Source
+
+	entry, _ := cellWidgets(t, cell)
+	if entry.PlaceHolder != "" {
+		t.Errorf("expected no placeholder leaking onto the Source column, got %q", entry.PlaceHolder)
 	}
 }
 
@@ -97,8 +161,8 @@ func TestPayloadCell_RebindingDoesNotLeakIntoThePreviousRow(t *testing.T) {
 	}
 
 	cell := newPayloadCell()
-	e.updatePayloadCell(widget.TableCellID{Row: 0, Col: 0}, cell)
-	e.updatePayloadCell(widget.TableCellID{Row: 1, Col: 0}, cell) // recycled for a different row
+	e.updatePayloadCell(widget.TableCellID{Row: 0, Col: 1}, cell)
+	e.updatePayloadCell(widget.TableCellID{Row: 1, Col: 1}, cell) // recycled for a different row
 
 	entry, _ := cellWidgets(t, cell)
 	entry.SetText("edited.txt")
@@ -108,6 +172,126 @@ func TestPayloadCell_RebindingDoesNotLeakIntoThePreviousRow(t *testing.T) {
 	}
 	if e.proj.Payload[1].Source != "edited.txt" {
 		t.Errorf("row 1 should have received the edit, got Source = %q", e.proj.Payload[1].Source)
+	}
+}
+
+func TestOnlySelectedRow(t *testing.T) {
+	if got := onlySelectedRow(map[int]bool{}); got != -1 {
+		t.Errorf("empty map: got %d, want -1", got)
+	}
+	if got := onlySelectedRow(map[int]bool{2: true}); got != 2 {
+		t.Errorf("single selected: got %d, want 2", got)
+	}
+	if got := onlySelectedRow(map[int]bool{1: true, 3: true}); got != -1 {
+		t.Errorf("two selected: got %d, want -1", got)
+	}
+	// A row present in the map but false (unchecked-then-rechecked-false,
+	// or a stale entry) must not count as "selected".
+	if got := onlySelectedRow(map[int]bool{0: false, 2: true}); got != 2 {
+		t.Errorf("one true + one false: got %d, want 2", got)
+	}
+}
+
+// TestRemoveSelectedPayload_DeletesOnlyCheckedRows is a regression test
+// for the real bug Allan found by hand: Remove silently did nothing,
+// since widget.Table's own row selection never fires for a cell filled by
+// its own interactive widget (see buildPayloadTab's own doc comment for
+// the full root cause). Remove now acts on the Select column's own
+// checked rows instead, and can remove more than one at once.
+func TestRemoveSelectedPayload_DeletesOnlyCheckedRows(t *testing.T) {
+	e := newTestEditor(t)
+	e.proj.Payload = []packproject.PayloadEntry{
+		{Source: "one.txt"},
+		{Source: "two.txt"},
+		{Source: "three.txt"},
+	}
+	e.payloadSelected = map[int]bool{0: true, 2: true}
+
+	e.removeSelectedPayload()
+
+	if len(e.proj.Payload) != 1 || e.proj.Payload[0].Source != "two.txt" {
+		t.Errorf("expected only two.txt to survive, got %+v", e.proj.Payload)
+	}
+	if len(e.payloadSelected) != 0 {
+		t.Errorf("expected payloadSelected to be cleared after Remove, got %v", e.payloadSelected)
+	}
+}
+
+func TestRemoveSelectedPayload_NoopWhenNothingSelected(t *testing.T) {
+	e := newTestEditor(t)
+	e.proj.Payload = []packproject.PayloadEntry{{Source: "one.txt"}}
+
+	e.removeSelectedPayload()
+
+	if len(e.proj.Payload) != 1 {
+		t.Errorf("expected Payload untouched when nothing is selected, got %+v", e.proj.Payload)
+	}
+}
+
+// TestTogglePayloadSort_SortsBySourceThenReverses covers the header-click
+// cycle: clicking a sortable column's header (Source=1) the first time
+// sorts ascending, clicking it again reverses to descending, matching the
+// two-state cycle documented on togglePayloadSort.
+func TestTogglePayloadSort_SortsBySourceThenReverses(t *testing.T) {
+	e := newTestEditor(t)
+	e.proj.Payload = []packproject.PayloadEntry{
+		{Source: "charlie.txt"},
+		{Source: "alpha.txt"},
+		{Source: "bravo.txt"},
+	}
+
+	e.togglePayloadSort(1)
+	got := []string{e.proj.Payload[0].Source, e.proj.Payload[1].Source, e.proj.Payload[2].Source}
+	want := []string{"alpha.txt", "bravo.txt", "charlie.txt"}
+	if got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+		t.Fatalf("ascending sort: got %v, want %v", got, want)
+	}
+
+	e.togglePayloadSort(1)
+	got = []string{e.proj.Payload[0].Source, e.proj.Payload[1].Source, e.proj.Payload[2].Source}
+	want = []string{"charlie.txt", "bravo.txt", "alpha.txt"}
+	if got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+		t.Fatalf("descending sort: got %v, want %v", got, want)
+	}
+}
+
+// TestTogglePayloadSort_SwitchingColumnResetsToAscending confirms clicking
+// a *different* sortable column always starts fresh at ascending, rather
+// than carrying over the previous column's direction.
+func TestTogglePayloadSort_SwitchingColumnResetsToAscending(t *testing.T) {
+	e := newTestEditor(t)
+	e.proj.Payload = []packproject.PayloadEntry{
+		{Source: "a.txt", Dest: "z"},
+		{Source: "b.txt", Dest: "y"},
+	}
+
+	e.togglePayloadSort(1) // Source ascending
+	e.togglePayloadSort(1) // Source descending
+	e.togglePayloadSort(2) // switch to Dest - must be ascending, not carry descending
+
+	if !e.payloadSortAsc {
+		t.Errorf("expected switching to a new column to reset to ascending, got descending")
+	}
+	if e.proj.Payload[0].Dest != "y" || e.proj.Payload[1].Dest != "z" {
+		t.Errorf("expected Dest ascending order [y,z], got %+v", e.proj.Payload)
+	}
+}
+
+// TestTogglePayloadSort_ClearsSelection guards against a reorder silently
+// making an existing Select checkbox refer to a different row than the
+// user actually checked.
+func TestTogglePayloadSort_ClearsSelection(t *testing.T) {
+	e := newTestEditor(t)
+	e.proj.Payload = []packproject.PayloadEntry{
+		{Source: "b.txt"},
+		{Source: "a.txt"},
+	}
+	e.payloadSelected = map[int]bool{0: true}
+
+	e.togglePayloadSort(1)
+
+	if len(e.payloadSelected) != 0 {
+		t.Errorf("expected selection cleared after sort, got %v", e.payloadSelected)
 	}
 }
 
@@ -182,21 +366,41 @@ func TestBuildPayloadEntriesNoneIncluded(t *testing.T) {
 	}
 }
 
-// TestDefaultPayloadDest is a regression test: showPayloadDialog's Add
-// File/Add Folder flow used to leave Dest blank unless the user typed one
-// by hand, so several Add-ed entries in a row would all get Dest == "" and
+// TestDefaultPayloadDest_Folder is a regression test: showPayloadDialog's
+// Add Folder flow used to leave Dest blank unless the user typed one by
+// hand, so several Add-ed entries in a row would all get Dest == "" and
 // only fail later, at validate/build time, as a confusing "payload dest
-// used by both X and Y" duplicate-destination error.
-func TestDefaultPayloadDest(t *testing.T) {
+// used by both X and Y" duplicate-destination error. A folder's own
+// basename is still the right default - its contents land under a
+// same-named subdirectory.
+func TestDefaultPayloadDest_Folder(t *testing.T) {
 	cases := map[string]string{
 		"/Users/allan/proj/assets/images":    "images",
-		"/Users/allan/proj/ReleaseNotes.txt": "ReleaseNotes.txt",
 		"/Users/allan/proj/assets/mesa-win/": "mesa-win",
-		"relative/path/LICENSE":              "LICENSE",
 	}
 	for source, want := range cases {
-		if got := defaultPayloadDest(source); got != want {
-			t.Errorf("defaultPayloadDest(%q) = %q, want %q", source, got, want)
+		if got := defaultPayloadDest(source, true); got != want {
+			t.Errorf("defaultPayloadDest(%q, true) = %q, want %q", source, got, want)
+		}
+	}
+}
+
+// TestDefaultPayloadDest_FileDefaultsToInstallRoot is a regression test
+// for a real bug found via Allan's own screenshot: Add File defaulted
+// Dest to the file's own basename (e.g. "branding.go" -> Dest:
+// "branding.go"), which silently nests the file one level deeper than
+// intended (".../branding.go/branding.go" instead of just
+// ".../branding.go") since a non-recursive entry's installed filename
+// already comes from Source's own basename automatically. The correct
+// default for a plain file is "" (the install root).
+func TestDefaultPayloadDest_FileDefaultsToInstallRoot(t *testing.T) {
+	cases := []string{
+		"/Users/allan/proj/ReleaseNotes.txt",
+		"relative/path/LICENSE",
+	}
+	for _, source := range cases {
+		if got := defaultPayloadDest(source, false); got != "" {
+			t.Errorf("defaultPayloadDest(%q, false) = %q, want \"\"", source, got)
 		}
 	}
 }

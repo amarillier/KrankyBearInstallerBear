@@ -63,9 +63,17 @@ func (e *editor) newSampleProject() {
 			e.path = path
 			e.refreshAll()
 			e.markSaved()
+			rememberProjectDir(e.app, filepath.Dir(path))
 		}, e.win)
 		fd.SetFileName("installerbear.yaml")
 		fd.SetFilter(storage.NewExtensionFileFilter([]string{".yaml", ".yml"}))
+		// Counts as a "discovery" dialog, not a save-your-own-file one,
+		// even though it's technically a FileSave picker - its whole point
+		// is showing a first-time user where a real example already lives
+		// (see dialoglocations.go's own comment on this).
+		if loc := dialogStartLocation(e.app, false); loc != nil {
+			fd.SetLocation(loc)
+		}
 		fd.Show()
 	})
 }

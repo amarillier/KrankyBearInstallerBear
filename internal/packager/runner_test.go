@@ -3,6 +3,8 @@ package packager
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"installerbear/internal/packproject"
@@ -17,18 +19,22 @@ type fakePackager struct {
 	buildErr       error
 	buildOutput    string
 	buildCallCount *int
-	buildArches    *[]string // records opts.Arch for every Build call, in order
+	buildArches    *[]string             // records opts.Arch for every Build call, in order
+	receivedProj   **packproject.Project // records the *Project Build was actually called with
 }
 
 func (f fakePackager) Target() Target       { return f.target }
 func (f fakePackager) HostSupported() error { return f.hostErr }
 func (f fakePackager) Preflight() error     { return f.preflightErr }
-func (f fakePackager) Build(_ context.Context, _ *packproject.Project, opts BuildOptions, _ ProgressFunc) (string, error) {
+func (f fakePackager) Build(_ context.Context, proj *packproject.Project, opts BuildOptions, _ ProgressFunc) (string, error) {
 	if f.buildCallCount != nil {
 		*f.buildCallCount++
 	}
 	if f.buildArches != nil {
 		*f.buildArches = append(*f.buildArches, opts.Arch)
+	}
+	if f.receivedProj != nil {
+		*f.receivedProj = proj
 	}
 	return f.buildOutput, f.buildErr
 }
@@ -153,6 +159,42 @@ func TestRun_MultiArchOneFailureDoesNotStopTheOther(t *testing.T) {
 	}
 	if len(results) != 2 || results[0].Err == nil || results[1].Err == nil {
 		t.Errorf("both arch results should carry the Build error, got %+v", results)
+	}
+}
+
+// TestRun_ExpandsPayloadGlobBeforeBuildWithoutMutatingCallersProject
+// confirms Run resolves a Payload glob pattern once, up front, and hands
+// every backend the expanded, literal result - while leaving the
+// caller's own *packproject.Project untouched (see ExpandedPayload's own
+// doc comment for why: its Payload is what the GUI edits and saves back
+// to installerbear.yaml, so Run must never bake today's matches into it).
+func TestRun_ExpandsPayloadGlobBeforeBuildWithoutMutatingCallersProject(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.yaml", "b.yaml"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var receivedProj *packproject.Project
+	pkgrs := []Packager{
+		fakePackager{target: "deb", buildOutput: "out.deb", receivedProj: &receivedProj},
+	}
+	proj := &packproject.Project{
+		BaseDir: dir,
+		Payload: []packproject.PayloadEntry{{Source: "*.yaml", Dest: ""}},
+	}
+
+	Run(context.Background(), proj, pkgrs, nil)
+
+	if receivedProj == nil {
+		t.Fatal("Build was never called")
+	}
+	if len(receivedProj.Payload) != 2 {
+		t.Fatalf("expected the backend to receive 2 expanded payload entries, got %+v", receivedProj.Payload)
+	}
+	if len(proj.Payload) != 1 || proj.Payload[0].Source != "*.yaml" {
+		t.Errorf("expected the caller's own proj.Payload to remain the original pattern, got %+v", proj.Payload)
 	}
 }
 

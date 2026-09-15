@@ -31,6 +31,201 @@ No certs yet for code signing, and choco/brew were just alternative-packaging th
 - maybe some day letting installer-generated dialogs themselves show in other languages (distinct from the app's own i18n above - this would be about `Setup.exe`/`.msi`'s own wizard text). Checked empirically (2026-09-14): genuinely cheap on `Setup.exe` (NSIS's MUI2 ships built-in language packs, just `!insertmacro MUI_LANGUAGE "German"` etc.), but no free lunch on `.msi` - `wixl`'s bundled UI extension ships zero translated string tables, so that half would mean hand-authoring every dialog string per language from scratch. Deliberately parked until someone actually asks for a non-English installer
 - macOS `.dmg` alongside `.pkg` - settled as not worth pursuing (2026-09-14): We have built both before and found no real advantage either way for the end user, `.pkg` just easier for creating. Not revisiting unless something changes
 
+## Version 0.7.0 - September 15, 2026
+
+- Hand-typed `#` comments in `installerbear.yaml` now survive being opened
+  and saved by this app - a real bug Allan found by hand: he'd edited
+  `sample-installerbear.yaml`'s own header comment block, opened the
+  result in the GUI, saved, and every comment silently vanished (plain
+  `gopkg.in/yaml.v3` `Marshal`/`Unmarshal` doesn't track comments at all).
+  Fixed by parsing a loaded project through a `yaml.Node` tree (not just
+  straight into the struct) and, on save, merging that tree's comments
+  onto a fresh encoding of the project's current values before writing -
+  matched by key name for a mapping, and by a natural per-shape key for a
+  list (a Payload entry's `source`, a Binary's `os`+`arch`, a File
+  Association's `extension`, a plain scalar list like `targets` by its
+  own value) rather than by position, so a comment survives even if the
+  list around it was reordered or added to. Deliberately manual-editing
+  only, per Allan's own framing - there's no GUI for adding or editing a
+  comment, this only stops the app from silently destroying one typed
+  directly into the file (ordinary `#`-to-end-of-line syntax, exactly
+  like a shell script). A project built by hand (a brand-new project, the
+  generated sample, every existing test) has nothing to preserve, so it
+  marshals exactly as before - confirmed via Allan's own hands-on retest
+  (add comments, Open, Save As..., reopen, verify) as well as the
+  automated test suite
+- Documented `hooks.pre_install`/`post_uninstall` for the first time
+  beyond "runs on the target machine" (README, in-app Help, and the
+  `Hooks` struct's own doc comment): both run under `/bin/sh` by default,
+  but starting the hook's own text with a shebang (e.g.
+  `#!/usr/bin/env python3`) switches the interpreter, same convention as
+  a normal script file. `pre_install` runs on both macOS and Linux;
+  `post_uninstall` is Linux-only - a `.pkg` install has no OS-level
+  uninstall action to hook into at all. Windows has no effect on either
+  (NSIS/MSI have no shell interpreter to run script text in) - a real
+  Windows equivalent is technically buildable (NSIS could shell out to
+  `powershell.exe`/`cmd.exe` the same way it already does for the
+  uninstall-time taskkill call) but deliberately parked, see "Future
+  Ideas". One real caveat documented too: InstallerBear's own
+  desktop-database/icon-cache/mime-database refresh commands are appended
+  after `post_uninstall`'s own text in the same script on Linux, so a
+  custom shebang there should stay POSIX-shell-compatible
+- New/New Sample Project/Open Project/Save Project As no longer default
+  to whatever folder the OS's own file dialog happens to start in
+  (usually the user's home directory) - Allan's own idea, since a fresh
+  install otherwise drops a first-time user in an empty home folder with
+  no clue `ReleaseNotes.md`/`sample-installerbear.yaml` exist right next
+  to the installed binary. New Project/Open Project/New Sample Project
+  (even though it's technically a Save dialog - its whole point is
+  showing a first-time user a real example, the same idea as Open) now
+  start beside the running executable the first time, before anything's
+  been remembered; Save Project As starts in the user's home directory
+  instead, since a personal project file belongs there, not inside the
+  application's own install directory. From the first successful use of
+  any of the four, a single shared "last used project directory"
+  preference takes over and all four start there from then on - the
+  common "remember the last folder I was in" convention most
+  file-dialog-heavy apps already follow
+- Payload `source:` can now be a glob pattern (`*`/`?`/`[...]` - the same
+  dialect `excludes:` already uses, deliberately, rather than a second
+  pattern syntax to learn; real regex was considered and dropped for that
+  consistency) instead of a literal path, for a project with a larger
+  number of files to bundle than makes sense to list by hand one at a
+  time - e.g. `source: "*.yaml"` to bundle every YAML file in the project
+  directory. Resolved once per build against whatever currently matches;
+  matching nothing isn't an error, just nothing to bundle this run.
+  `excludes:` now also filters *which* glob matches get included, even for
+  a non-recursive entry (previously only meaningful inside a recursive
+  copy) - "include broadly via `source`, exclude specifically via
+  `excludes`," exactly the workflow Allan asked for. Every backend's own
+  copy logic is completely unchanged - a single shared expansion step
+  (`packproject.ExpandedPayload`) resolves patterns into concrete files
+  once, before any backend ever runs, so none of the four needed to learn
+  anything about wildcards at all. Deliberately never mutates the
+  project's own stored Payload (what the GUI edits and saves back to
+  installerbear.yaml) - only the in-memory copy actually used for
+  validating and building sees the expansion, so a `source: "*.yaml"`
+  pattern survives being built and saved again, rather than freezing into
+  today's matches. Verified with a real build: a `.deb` built against a
+  glob `source` correctly bundled the matching files and honored
+  `excludes` on top
+- Payload tab: the inline table's Dest column now shows greyed-out
+  placeholder text ("(install root)") when blank, so a blank Dest reads as
+  intentional rather than an accidental omission - Allan's own idea,
+  prompted by worrying someone might type `dest: <same name as the file>`
+  by hand not realizing that nests the file one level deeper (Dest is
+  always a destination *directory*; the installed filename already comes
+  from Source's own basename automatically)
+- While looking into that, found the exact bug he was worried about
+  already happening automatically: **Add File...** (and "Scan folder...")
+  defaulted a plain file's Dest to its own basename (e.g. adding
+  `branding.go` proposed `Dest: branding.go`), which silently installed it
+  at `.../branding.go/branding.go` instead of `.../branding.go` - the
+  installed filename already comes from Source's own basename, so
+  defaulting Dest to that same basename doubles it up as an extra nested
+  directory. A folder's own basename is still the correct default for a
+  **Recursive** entry (its contents belong under a same-named
+  subdirectory); only the plain-file case was wrong. Fixed in both
+  `showPayloadDialog`'s auto-fill and `projectscan.ScanPayloadCandidates`
+  ("Scan folder..."'s own proposals) - a plain file now defaults to a
+  blank Dest (the install root), matching how this project's own
+  `installerbear.yaml` already writes `ReleaseNotes.md`'s entry by hand
+- Payload tab gained a fifth column, **Excludes** (comma-separated glob
+  patterns, same as OS filter's own style), on both the inline table and
+  the Add/Edit dialog - `excludes:` had no GUI exposure at all until now,
+  only ever settable by hand-editing the `.yaml` file directly (or
+  inherited from an imported `.iss`). Asked for right after adding the
+  `source: "*.yaml"` example above, since narrowing down a glob match is
+  the other half of that feature - now usable end to end without dropping
+  to the file
+- Payload tab's table now stretches its last column (Excludes) to fill
+  whatever width is left over in the window, instead of leaving dead space
+  and forcing a horizontal scrollbar even on a plenty-wide window - found
+  right after adding the Excludes column above. `widget.Table` itself has
+  no "stretch"/flexible-column concept at all (confirmed by reading Fyne's
+  own source - `SetColumnWidth` only ever sets a fixed width), so this
+  needed a small custom `fyne.Layout` wrapping the table, recalculating
+  the last column's width on every resize
+- New Validate check: `macos.bundle_executable` can no longer end in
+  `.exe` - found via Allan's own hands-on macOS testing, where this
+  project's own `installerbear.yaml`/`sample-installerbear.yaml` had
+  `KrankyBear-InstallerBear.exe` (copy-pasted alongside `windows.exe_name`).
+  Harmless functionally - macpkg just copies the binary verbatim under
+  whatever name is configured, and it launched fine - but `.exe` is a pure
+  Windows-ism that never belongs on a macOS executable and looks wrong
+  inside the installed `.app` bundle. Fixed in both files; the new check
+  catches the same mistake for anyone else, the same way
+  `validateWindowsExeName` already catches a mismatched Windows one
+- Fixed a real, significant bug found via Allan's own hands-on testing
+  while migrating a second, much larger real project: the Payload tab's
+  **Remove** button (and **Edit...**) silently did nothing. Root cause,
+  confirmed by reading Fyne's own hit-testing code
+  (`internal/driver.FindObjectAtPositionMatching`): every cell in this
+  table is filled edge-to-edge by its own interactive `Entry`/`Check`
+  widget, and Fyne always dispatches a click to the deepest matching
+  object under the pointer - which is always that cell's own widget,
+  never bubbling up to the Table's own row-selection
+  (`OnSelected`/`OnUnselected`). So row selection had silently never
+  worked at all since cells became directly editable in place (0.3.0) -
+  not something a tweak to that mechanism could fix, since the same
+  dispatch rule applies to any cell containing its own focusable widget.
+  Fixed with a dedicated **Select** checkbox column instead (Allan's own
+  suggested design) - completely sidesteps the problem, and as a bonus
+  now supports removing several rows at once, not just one. The File
+  Associations tab had the exact same bug (same table pattern, same root
+  cause) and got the identical fix
+- Payload `os:` filter can now scope by architecture, not just OS - an
+  entry can be a bare OS name (`windows` - every arch of that OS,
+  unchanged) or an `os/arch` pair (`windows/arm64` - that arch only), the
+  same slash convention Docker's `--platform`/`go tool dist list` already
+  use rather than a new syntax to invent. `mac`/`macos` (case-insensitive)
+  are now also accepted as aliases for `darwin` on either side of the
+  slash. Asked for while migrating `../TaniumMigrator` - some payload
+  files there are only relevant to one architecture, and bundling both
+  unconditionally wasted space (and could confuse users poking around the
+  installed files). All four backends previously hand-rolled their own
+  identical OS-only check; consolidated into one shared
+  `PayloadEntry.AppliesToOS(os, arch)` method so they can't drift out of
+  sync with each other again. Verified with a real build: two `.deb`s
+  (amd64 and arm64) built from the same project, confirming an
+  arch-scoped entry landed in only the matching one while a bare-OS entry
+  landed in both
+- Payload tab's Source/Dest/OS column headers are now clickable to sort by
+  that column (click again to reverse direction) - asked for after Allan
+  compared the new OS/Excludes columns against a real, larger project's
+  config and wanted an easy way to visually check everything was covered.
+  This is a real, persisted reorder of `Project.Payload`, not just an
+  on-screen view - comment-preservation (0.7.0's own comment feature above)
+  already matches entries by content rather than position, so a hand-typed
+  `#` comment stays attached to the right entry across a sort, which made
+  reordering the underlying data itself the simpler and safer choice over
+  a separate row-index overlay. `widget.Table` has no built-in sortable-
+  header concept, but its `CreateHeader`/`UpdateHeader` callbacks accept
+  any `fyne.CanvasObject`, so the header row is now built from `Button`s
+  instead of plain `Label`s (mirroring the same pattern already proven in
+  `../KrankyBearProcessMiner`/`../KrankyBearCommander`) - Select/Recursive/
+  Excludes get the same Button type (Table recycles one header object per
+  column position, so every header must share a type) with no click
+  handler wired, so they're inert
+- The OS filter's placeholder/hint text (both the inline table cell and
+  the Add/Edit dialog) now shows more concrete examples
+  (`linux/amd64, darwin/amd64, mac/arm64`) instead of a single
+  `windows/arm64,mac` example that Allan felt could read as unclear on its
+  own
+- The Add/Edit Payload dialog's OS filter is now a checkbox grid (one row
+  per OS - Windows/macOS/Linux - each with an "Any arch" box plus amd64/
+  arm64 boxes, "Any arch" mutually exclusive with the individual arch
+  boxes) instead of free-text typing, removing all typo/ambiguity risk when
+  one entry needs to target several specific OS/arch combos at once (e.g.
+  mac/arm64 + linux/arm64 + linux/amd64 - three checkboxes, no need for
+  separate Payload rows). The OS/arch space is small and fully known (the
+  same set `AppliesToOS`/the Binaries tab already understand), which is
+  what made checkboxes practical here. A pre-existing OS value the grid
+  doesn't recognize (an exotic arch, a typo) is preserved as-is rather than
+  silently dropped when the dialog saves. The inline table cell's OS
+  column is unchanged - still plain comma-separated text, confirmed still
+  wanted for a quick glance/tweak without opening the dialog
+
 ## Version 0.6.0 - September 14, 2026
 
 - File Associations now also work on macOS: when the project directory has

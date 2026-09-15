@@ -53,9 +53,23 @@ func ScanPayloadCandidates(dir string, proj *packproject.Project) []PayloadCandi
 			}
 		}
 
+		// Dest defaults to the entry's own basename only for a folder (its
+		// contents land under a same-named subdirectory) - for a plain
+		// file, "" (the install root) is correct instead, since a
+		// non-recursive entry's installed filename already comes from
+		// Source's own basename automatically; defaulting it to the same
+		// basename again would nest the file one level deeper than
+		// intended (e.g. ".../ReleaseNotes.md/ReleaseNotes.md" instead of
+		// ".../ReleaseNotes.md") - the same fix as payloadtable.go's own
+		// defaultPayloadDest, applied here too since this scan proposes
+		// candidates independently of that dialog.
+		dest := ""
+		if entry.IsDir() {
+			dest = entry.Name()
+		}
 		candidates = append(candidates, PayloadCandidate{
 			Source:    source,
-			Dest:      entry.Name(),
+			Dest:      dest,
 			Recursive: entry.IsDir(),
 		})
 	}

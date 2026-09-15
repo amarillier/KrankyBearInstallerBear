@@ -21,15 +21,21 @@ func TestScanPayloadCandidatesBasic(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("got %d candidates, want 2: %+v", len(got), got)
 	}
-	byDest := make(map[string]PayloadCandidate)
+	bySource := make(map[string]PayloadCandidate)
 	for _, c := range got {
-		byDest[c.Dest] = c
+		bySource[c.Source] = c
 	}
-	if c := byDest["ReleaseNotes.txt"]; c.Recursive || c.Source != "ReleaseNotes.txt" {
-		t.Errorf("ReleaseNotes.txt candidate = %+v", c)
+	// A plain file's Dest defaults to "" (the install root) - not its own
+	// basename, which would otherwise nest it one level deeper than
+	// intended (see defaultPayloadDest's own doc comment in
+	// payloadtable.go for the real bug this guards against).
+	if c := bySource["ReleaseNotes.txt"]; c.Recursive || c.Dest != "" {
+		t.Errorf("ReleaseNotes.txt candidate = %+v, want Recursive=false Dest=\"\"", c)
 	}
-	if c := byDest["assets"]; !c.Recursive || c.Source != "assets" {
-		t.Errorf("assets candidate = %+v", c)
+	// A folder's Dest still defaults to its own basename - its contents
+	// land under a same-named subdirectory.
+	if c := bySource["assets"]; !c.Recursive || c.Dest != "assets" {
+		t.Errorf("assets candidate = %+v, want Recursive=true Dest=\"assets\"", c)
 	}
 }
 
@@ -46,7 +52,7 @@ func TestScanPayloadCandidatesSkipsCoveredFiles(t *testing.T) {
 	}
 	got := ScanPayloadCandidates(dir, proj)
 
-	if len(got) != 1 || got[0].Dest != "extra.txt" {
+	if len(got) != 1 || got[0].Source != "extra.txt" {
 		t.Fatalf("got %+v, want only extra.txt", got)
 	}
 }
@@ -64,7 +70,7 @@ func TestScanPayloadCandidatesSkipsExistingPayload(t *testing.T) {
 	}
 	got := ScanPayloadCandidates(dir, proj)
 
-	if len(got) != 1 || got[0].Dest != "new.txt" {
+	if len(got) != 1 || got[0].Source != "new.txt" {
 		t.Fatalf("got %+v, want only new.txt", got)
 	}
 }

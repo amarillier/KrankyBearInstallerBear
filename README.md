@@ -21,6 +21,15 @@ fixing and performance work.
   the window title reflecting the project name and unsaved-changes state.
 - Open is lenient (a work-in-progress project can be reopened even if incomplete);
   Save-before-build always validates first.
+- New/New Sample Project/Open all start browsing beside the running
+  executable the first time (where `ReleaseNotes.md`/
+  `sample-installerbear.yaml` already live), rather than the OS's usual
+  default (often your home directory) — a first-time user actually sees
+  them instead of needing to already know to go looking. Save As starts
+  in your home directory the first time instead, since a personal project
+  file belongs there, not inside the app's own install directory. From
+  the first successful use of any of the four, a single remembered
+  "last used" directory takes over for all of them.
 - Hand-typed `#` comments in `installerbear.yaml` survive an Open/Save
   round-trip — useful for notes, or temporarily commenting out a
   payload/binary/file-association entry. Manual-editing only: there's no
@@ -128,13 +137,48 @@ fixing and performance work.
 ### Payload tab
 
 - Table of extra files/folders to bundle alongside the binary (source, destination,
-  recursive copy, OS filter) — the GUI equivalent of Inno's `[Files]` section or
-  `fpm`'s `src=dest` arguments.
-- Every cell is directly editable in place — type into Source/Dest/OS filter
-  or toggle Recursive right in the table, no dialog round-trip needed for a
-  quick tweak. Add File / Add Folder / Edit... (Browse-assisted) / Remove
+  recursive copy, OS filter, excludes) — the GUI equivalent of Inno's `[Files]`
+  section or `fpm`'s `src=dest` arguments.
+- Every cell is directly editable in place — type into Source/Dest/OS filter/
+  Excludes or toggle Recursive right in the table, no dialog round-trip needed
+  for a quick tweak. Add File / Add Folder / Edit... (Browse-assisted) / Remove
   still go through a dialog, since adding a row or picking a new path via a
-  file/folder browser both need one.
+  file/folder browser both need one. Excludes takes a comma-separated list of
+  glob patterns, same as the field on the Add/Edit dialog.
+- The leftmost **Select** column's checkboxes (not a click-to-select row —
+  `widget.Table` can't offer that once every cell is its own editable
+  widget) drive **Remove** (deletes every checked row, any number at once)
+  and **Edit...** (needs exactly one checked).
+- **Click the Source, Dest, or OS column header to sort** by it (click again
+  to reverse). This reorders `Project.Payload` itself, not just the on-screen
+  view — comment-preservation matches entries by content, not position, so a
+  hand-typed `#` comment stays attached to its own entry across a sort — so
+  the saved YAML ends up in the new order too.
+- **Source may be a glob pattern** (`*`/`?`/`[...]` — the same dialect
+  `excludes:` already uses) instead of a literal path, e.g. `*.yaml` to
+  bundle every YAML file in the project directory without listing each one
+  by hand. Resolved once per build against whatever currently matches — a
+  pattern matching nothing isn't an error, just nothing to bundle this
+  time. `excludes:` also filters *which* matches are included, even for a
+  non-recursive entry (its normal role is filtering inside a recursive
+  copy) — "include broadly via Source, exclude specifically via Excludes."
+- **OS filter can scope by architecture too**, not just OS: an entry in `os:`
+  can be a bare OS name (`windows` — every arch of that OS) or an `os/arch`
+  pair (`windows/arm64` — that arch only), the same slash convention
+  Docker's `--platform`/`go tool dist list` already use. `mac`/`macos`
+  (case-insensitive) are accepted as aliases for `darwin` on either side of
+  the slash. E.g. `os: [windows/arm64, mac]`.
+- **The Add/Edit dialog offers OS/arch as a checkbox grid**, not a free-text
+  field: one row per OS (Windows/macOS/Linux), each with an "Any arch" box
+  plus amd64/arm64 boxes ("Any arch" and the individual arch boxes are
+  mutually exclusive per OS). This is the known, finite OS/arch matrix this
+  project actually builds for, so checkboxes remove all typo/ambiguity risk
+  versus typing `windows/arm64,mac` by hand — a single entry can target
+  several specific OS/arch combos this way with no need for separate rows.
+  Any pre-existing OS value the grid doesn't recognize (an exotic arch, a
+  typo) is kept as-is rather than silently dropped. The inline table cell's
+  OS column is unchanged — still a plain comma-separated text field for a
+  quick glance or tweak without opening the dialog.
 
 ### File Associations tab
 
